@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>自动化测试平台</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config={theme:{extend:{colors:{primary:'#6366f1',dark:'#0a0a0f'}}}}</script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+[x-cloak]{display:none!important}
+*{font-family:'Inter',system-ui,-apple-system,sans-serif}
+.font-mono{font-family:'JetBrains Mono','Fira Code',monospace}
+
+/* Dark gradient background */
+.gradient-bg{background:linear-gradient(135deg,#0f0c29 0%,#1a1a2e 50%,#24243e 100%);background-attachment:fixed}
+
+/* Glassmorphism cards */
+.glass-card{background:rgba(255,255,255,0.04);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.08);border-radius:12px;transition:all .2s cubic-bezier(0.4,0,0.2,1)}
+.glass-card-hover:hover{background:rgba(255,255,255,0.07);border-color:rgba(255,255,255,0.15);transform:translateY(-1px);box-shadow:0 12px 40px rgba(0,0,0,0.4)}
+
+/* Inset panels (tables, logs, inputs) */
+.glass-inset{background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.05);border-radius:10px}
+
+/* Buttons */
+.btn-glass{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 14px;border:1px solid rgba(255,255,255,0.1);border-radius:8px;font-size:12px;font-weight:500;cursor:pointer;transition:all .15s ease;background:rgba(255,255,255,0.05);color:#e5e7eb}
+.btn-glass:hover{background:rgba(255,255,255,0.1);border-color:rgba(255,255,255,0.18)}
+.btn-glass:active{transform:translateY(1px)}
+.btn-primary{background:rgba(99,102,241,0.15);border-color:rgba(99,102,241,0.4);color:#c7d2fe}
+.btn-primary:hover{background:rgba(99,102,241,0.25);border-color:rgba(99,102,241,0.6);box-shadow:0 0 16px rgba(99,102,241,0.15)}
+.btn-danger{background:rgba(251,113,133,0.12);border-color:rgba(251,113,133,0.35);color:#fecdd3}
+.btn-danger:hover{background:rgba(251,113,133,0.22);border-color:rgba(251,113,133,0.55)}
+.btn-success{background:rgba(52,211,153,0.12);border-color:rgba(52,211,153,0.35);color:#a7f3d0}
+.btn-success:hover{background:rgba(52,211,153,0.22);border-color:rgba(52,211,153,0.55)}
+
+/* Sidebar */
+.sidebar-item{display:flex;align-items:center;gap:12px;padding:10px 14px;margin:2px 10px;border-radius:8px;cursor:pointer;transition:all .18s cubic-bezier(0.4,0,0.2,1);font-size:13px;font-weight:500;color:#9ca3af;border-left:2px solid transparent}
+.sidebar-item:hover{background:rgba(255,255,255,0.04);color:#e5e7eb}
+.sidebar-item.active{background:linear-gradient(90deg,rgba(99,102,241,0.12) 0%,transparent 100%);color:#c7d2fe;border-left-color:#6366f1}
+.sidebar-item svg{width:18px;height:18px;flex-shrink:0}
+
+/* Table styles */
+table{width:100%;font-size:13px}
+th{font-weight:600;color:#9ca3af;text-transform:uppercase;font-size:11px;letter-spacing:.5px}
+td,th{padding:10px 14px;text-align:left}
+tbody tr{border-bottom:1px solid rgba(255,255,255,0.04);transition:background .1s}
+tbody tr:hover{background:rgba(255,255,255,0.03)}
+
+/* Status badges */
+.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:9999px;font-size:11px;font-weight:600}
+
+/* Modal overlay */
+.glass-modal{backdrop-filter:blur(8px);background:rgba(0,0,0,.55)}
+
+/* Form inputs */
+.glass-input{background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:8px 12px;font-size:13px;color:#e5e7eb;outline:none;transition:all .15s ease}
+.glass-input:focus{border-color:rgba(99,102,241,0.5);box-shadow:0 0 0 3px rgba(99,102,241,0.08)}
+.glass-input::placeholder{color:#6b7280}
+
+/* Upload zone */
+.drag-over{border-color:#6366f1!important;background:rgba(99,102,241,0.08)!important}
+
+/* Scrollbar */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,0.2)}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+  body { flex-direction: column !important; }
+  aside { width: 100% !important; height: auto !important; min-height: auto !important; position: relative !important; flex-direction: row !important; padding: 8px !important; background: rgba(0,0,0,0.3) !important; }
+  aside .flex-col { flex-direction: row !important; align-items: center; }
+  aside nav { display: flex; flex-direction: row; gap: 4px; overflow-x: auto; flex-wrap: nowrap; }
+  aside nav::-webkit-scrollbar { display: none; }
+  .sidebar-item { padding: 8px 12px; white-space: nowrap; font-size: 12px; margin: 0; border-left: none; border-bottom: 2px solid transparent; }
+  .sidebar-item.active { border-left-color: transparent; border-bottom-color: #6366f1; background: rgba(99,102,241,0.1); }
+  .sidebar-item span { display: none; }
+  .sidebar-item svg { width: 20px; height: 20px; }
+  main { margin-left: 0 !important; padding: 16px !important; }
+  .grid-cols-4, .grid-cols-3, .grid-cols-2 { grid-template-columns: 1fr !important; }
+  .flex.gap-6.items-start { flex-direction: column !important; gap: 16px !important; }
+  .flex.gap-6.items-start > .flex-1, .flex.gap-6.items-start > .w-72 { width: 100% !important; flex: none !important; }
+  .flex.gap-6.items-start > .pt-6 { padding-top: 0 !important; width: 100% !important; }
+  .flex.gap-6.items-start > .pt-6 button { width: 100% !important; }
+  .glass-card { padding: 16px !important; }
+  table { font-size: 12px; display: block; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
+  thead, tbody { display: table; width: 100%; min-width: 600px; }
+  th, td { padding: 8px !important; }
+  .glass-modal > div { width: 95% !important; max-width: 95% !important; margin: 16px !important; }
+  iframe { height: 80vh !important; }
+}
+@media (max-width: 480px) {
+  .sidebar-item { padding: 6px 8px; }
+  .sidebar-item svg { width: 18px; height: 18px; }
+}
+</style>
+</head>
+<body class="gradient-bg min-h-screen flex text-gray-100" x-data="app()" x-init="init()">
+
+<!-- 侧边栏 -->
+<aside class="w-56 min-h-screen p-4 flex flex-col fixed left-0 top-0 bottom-0 z-40 bg-black/20 backdrop-blur-xl border-r border-white/10">
+  <div class="flex items-center gap-3 px-2 mb-8">
+    <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-indigo-500/20">AT</div>
+    <div class="text-white font-semibold text-sm tracking-tight">自动化测试平台</div>
+  </div>
+  <nav class="flex-1 space-y-1">
+    <div class="sidebar-item" :class="tab==='dashboard'&&'active'" @click="tab='dashboard'">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" /></svg>
+      <span>仪表盘</span>
+    </div>
+    <div class="sidebar-item" :class="tab==='packages'&&'active'" @click="tab='packages'">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" /></svg>
+      <span>包管理</span>
+    </div>
+    <div class="sidebar-item" :class="tab==='tasks'&&'active'" @click="tab='tasks'">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
+      <span>测试任务</span>
+    </div>
+    <div class="sidebar-item" :class="tab==='reports'&&'active'" @click="tab='reports'">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M8.25 4.5V19.5a2.25 2.25 0 0 0 2.25 2.25h7.5" /></svg>
+      <span>测试报告</span>
+    </div>
+    <div class="sidebar-item" :class="tab==='devices'&&'active'" @click="tab='devices'">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 0 0 6 3.75v16.5a2.25 2.25 0 0 0 2.25 2.25h7.5A2.25 2.25 0 0 0 18 20.25V3.75a2.25 2.25 0 0 0-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3" /></svg>
+      <span>设备管理</span>
+    </div>
+    <div class="sidebar-item" :class="tab==='about'&&'active'" @click="tab='about'">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" /></svg>
+      <span>项目介绍</span>
+    </div>
+  </nav>
+  <div class="text-xs text-gray-500 px-2">v1.0</div>
+</aside>
+
+<!-- 主内容 -->
+<main class="ml-56 flex-1 p-6">
+
+<!-- 仪表盘 -->
+<div x-show="tab==='dashboard'" x-cloak>
+  <h2 class="text-lg font-semibold text-gray-100 mb-4 tracking-tight">仪表盘</h2>
+  <div class="grid grid-cols-4 gap-4 mb-6">
+    <div class="glass-card glass-card-hover p-5 border-l-4 border-l-indigo-500">
+      <div class="text-3xl font-bold text-indigo-300 tracking-tight" x-text="packages.length">0</div>
+      <div class="text-gray-400 text-sm mt-1">已上传包</div>
+    </div>
+    <div class="glass-card glass-card-hover p-5 border-l-4 border-l-emerald-400">
+      <div class="text-3xl font-bold text-emerald-300 tracking-tight" x-text="devices.length">0</div>
+      <div class="text-gray-400 text-sm mt-1">在线设备</div>
+    </div>
+    <div class="glass-card glass-card-hover p-5 border-l-4 border-l-violet-400">
+      <div class="text-3xl font-bold text-violet-300 tracking-tight" x-text="tasks.filter(t=>t.status==='running').length">0</div>
+      <div class="text-gray-400 text-sm mt-1">运行中任务</div>
+    </div>
+    <div class="glass-card glass-card-hover p-5 border-l-4 border-l-amber-400">
+      <div class="text-3xl font-bold text-amber-300 tracking-tight" x-text="reports.length">0</div>
+      <div class="text-gray-400 text-sm mt-1">测试报告</div>
+    </div>
+  </div>
+  <div class="glass-card p-5">
+    <h3 class="font-semibold text-gray-200 mb-3 text-sm tracking-wide">最近任务</h3>
+    <table class="w-full"><thead><tr class="border-b border-white/10"><th>ID</th><th>包名</th><th>设备</th><th>状态</th><th>时间</th></tr></thead>
+    <tbody><template x-for="t in tasks.slice(0,10)" :key="t.id"><tr>
+      <td class="text-gray-500" x-text="'#'+t.id"></td>
+      <td class="font-medium text-gray-200" x-text="t.package_name||t.filename"></td>
+      <td class="text-gray-400 text-xs" x-text="t.device_serial"></td>
+      <td><span class="badge" :class="statusClass(t.status)" x-text="t.status"></span></td>
+      <td class="text-gray-500 text-xs" x-text="t.created_at?.slice(0,19)"></td>
+    </tr></template></tbody></table>
+  </div>
+</div>
+
+<!-- 包管理 -->
+<div x-show="tab==='packages'" x-cloak>
+  <h2 class="text-lg font-semibold text-gray-100 mb-4 tracking-tight">包管理</h2>
+  <div class="glass-card p-5 mb-4">
+    <div class="border-2 border-dashed border-white/10 rounded-xl p-10 text-center cursor-pointer hover:border-indigo-500/50 hover:bg-indigo-500/5 transition"
+         @dragover.prevent="$el.classList.add('drag-over')" @dragleave.prevent="$el.classList.remove('drag-over')"
+         @drop.prevent="handleDrop($event)" @click="$refs.fileInput.click()">
+      <svg class="w-10 h-10 mx-auto text-gray-500 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0 3 3m-3-3-3 3M6.75 19.5a4.5 4.5 0 0 1-1.41-8.775 5.25 5.25 0 0 1 10.233-2.33 3 3 0 0 1 3.758 3.848A3.752 3.752 0 0 1 18 19.5H6.75Z" /></svg>
+      <p class="text-gray-400 text-sm">拖拽 APK / RPK 文件到此处，或点击选择</p>
+      <input type="file" x-ref="fileInput" accept=".apk,.rpk" multiple class="hidden" @change="handleFileSelect($event)">
+    </div>
+    <div x-show="uploading" class="mt-3 text-indigo-300 text-sm font-medium animate-pulse flex items-center gap-2">
+      <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+      上传中...
+    </div>
+  </div>
+  <div class="glass-card p-5">
+    <div class="flex justify-between items-center mb-3">
+      <h3 class="font-semibold text-gray-200 text-sm tracking-wide">已上传包 (<span x-text="packages.length"></span>)</h3>
+      <div class="flex gap-2">
+        <button x-show="selectedPackages.length>0" @click="batchDeletePackages()" class="btn-glass btn-danger">批量删除 (<span x-text="selectedPackages.length"></span>)</button>
+        <button x-show="packages.length>0" @click="deleteAllPackages()" class="btn-glass btn-danger">全部删除</button>
+      </div>
+    </div>
+    <table class="w-full"><thead><tr class="border-b border-white/10">
+      <th class="w-8"><input type="checkbox" @change="toggleAllPackages($event)" :checked="selectedPackages.length===packages.length&&packages.length>0" class="rounded bg-black/30 border-white/20"></th>
+      <th>文件名</th><th>包名</th><th>类型</th><th>大小</th><th>来源</th><th>操作</th>
+    </tr></thead>
+    <tbody><template x-for="p in packages" :key="p.id"><tr>
+      <td><input type="checkbox" :value="p.id" x-model.number="selectedPackages" class="rounded bg-black/30 border-white/20"></td>
+      <td class="font-medium text-gray-200" x-text="p.filename"></td>
+      <td class="text-indigo-300 font-medium" x-text="p.package_name"></td>
+      <td><span class="badge bg-white/5 text-gray-300 border border-white/10" x-text="p.file_type.toUpperCase()"></span></td>
+      <td class="text-gray-500 text-xs" x-text="formatSize(p.file_size)"></td>
+      <td class="text-gray-500 text-xs" x-text="p.source"></td>
+      <td class="space-x-2">
+        <button @click="openCreateTask(p)" class="text-indigo-300 hover:text-indigo-200 text-xs font-medium">测试</button>
+        <button @click="pushPackage(p.id)" class="text-cyan-300 hover:text-cyan-200 text-xs">推送</button>
+        <button @click="deletePackage(p.id)" class="text-rose-300 hover:text-rose-200 text-xs">删除</button>
+      </td>
+    </tr></template></tbody></table>
+  </div>
+</div>
+
+<!-- 测试任务 -->
+<div x-show="tab==='tasks'" x-cloak>
+  <h2 class="text-lg font-semibold text-gray-100 mb-4 tracking-tight">测试任务</h2>
+  <div class="glass-card p-5 mb-4" x-show="showCreateTask" x-transition>
+    <h3 class="font-semibold text-gray-200 mb-3 text-sm tracking-wide">创建测试任务</h3>
+    <div class="flex gap-6 items-start">
+      <div class="flex-1">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-sm text-gray-400">选择包</span>
+          <label class="flex items-center gap-1 text-xs text-gray-500 cursor-pointer">
+            <input type="checkbox" class="rounded bg-black/30 border-white/20" @change="toggleAllTaskPackages($event)" :checked="taskSelectedPkgs.length===packages.length&&packages.length>0">
+            <span>全选</span>
+            <span x-show="taskSelectedPkgs.length>0" class="text-indigo-300 font-semibold" x-text="'('+taskSelectedPkgs.length+')'"></span>
+          </label>
+        </div>
+        <div class="glass-inset max-h-48 overflow-y-auto p-2 space-y-0.5">
+          <template x-for="p in packages" :key="p.id">
+            <label class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/5 cursor-pointer text-sm">
+              <input type="checkbox" :value="p.id" x-model.number="taskSelectedPkgs" class="rounded bg-black/30 border-white/20">
+              <span class="text-gray-200" x-text="p.filename"></span>
+              <span class="text-gray-500 text-xs" x-text="'('+p.package_name+')'"></span>
+            </label>
+          </template>
+        </div>
+      </div>
+      <div class="w-72">
+        <span class="text-sm text-gray-400 block mb-2">选择设备</span>
+        <select x-model="newTask.device_serial" class="glass-input w-full mb-2">
+          <option value="">自动分配</option>
+          <template x-for="d in devices" :key="d.serial"><option :value="d.serial" x-text="d.serial+' ('+(d.model||'未知')+')'"></option></template>
+        </select>
+        <label class="flex items-center gap-2 text-xs text-gray-500 cursor-pointer">
+          <input type="checkbox" x-model="newTask.autoDistribute" class="rounded bg-black/30 border-white/20">
+          <span>批量分散到多台设备</span>
+        </label>
+        <div x-show="deviceLoads.length>0" class="mt-3 border-t border-white/10 pt-3">
+          <div class="text-xs text-gray-500 mb-2">设备负载</div>
+          <div class="space-y-1.5 max-h-32 overflow-y-auto">
+            <template x-for="load in deviceLoads" :key="load.serial">
+              <div class="flex items-center gap-2 text-xs">
+                <div class="w-2 h-2 rounded-full" :class="load.total===0?'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)]':load.total<3?'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.6)]':'bg-rose-400 shadow-[0_0_6px_rgba(251,113,133,0.6)]'"></div>
+                <span class="text-gray-400 truncate flex-1" x-text="load.model||load.serial.slice(0,12)"></span>
+                <span class="text-gray-500" x-text="load.running+'/'+load.total"></span>
+                <div class="w-12 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                  <div class="h-full bg-indigo-400 rounded-full" :style="'width:'+Math.min(100,load.total*20)+'%'"></div>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+      <div class="pt-6">
+        <button @click="createTasks()" class="btn-glass btn-primary px-5 py-2">开始测试</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="glass-card p-5">
+    <div class="flex justify-between items-center mb-3">
+      <h3 class="font-semibold text-gray-200 text-sm tracking-wide">任务列表</h3>
+      <div class="flex gap-2">
+        <button x-show="tasks.length>0" @click="deleteAllTasks()" class="btn-glass btn-danger">全部删除</button>
+        <button @click="showCreateTask=!showCreateTask" class="btn-glass btn-primary">新建任务</button>
+      </div>
+    </div>
+    <!-- 任务列表：用 div grid 彻底重写，避开 Alpine x-for 在 table 里的兼容性问题 -->
+    <div class="text-xs font-semibold text-gray-500 uppercase tracking-wider grid grid-cols-[32px_1fr_1.5fr_1fr_80px_120px_100px] gap-2 px-3 py-2 border-b border-white/10">
+      <div></div>
+      <div>ID/批次</div>
+      <div>包名/任务数</div>
+      <div>设备</div>
+      <div>状态</div>
+      <div>时间</div>
+      <div>操作</div>
+    </div>
+    <div class="text-sm">
+      <template x-for="batch in taskBatches" :key="'batch-' + batch.batch_id">
+        <div class="border-b border-white/5">
+          <!-- 批量任务主行 -->
+          <div class="grid grid-cols-[32px_1fr_1.5fr_1fr_80px_120px_100px] gap-2 px-3 py-2.5 bg-indigo-500/5 hover:bg-indigo-500/10 cursor-pointer transition items-center" @click="toggleBatch(batch.batch_id)">
+            <div>
+              <svg class="w-4 h-4 text-indigo-300 transition-transform" :class="isBatchExpanded(batch.batch_id) ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+              </svg>
+            </div>
+            <div class="font-medium text-indigo-300 text-xs" x-text="batch.batch_id.slice(0, 8) + '...'"></div>
+            <div class="font-medium">
+              <span class="badge bg-indigo-500/15 text-indigo-200 border border-indigo-500/20">批量任务</span>
+              <span class="text-xs text-gray-500 ml-1" x-text="batch.tasks.length + ' 个子任务'"></span>
+            </div>
+            <div class="text-gray-400 text-xs">
+              <span x-text="[...new Set(batch.tasks.map(t => t.device_serial))].length + ' 台设备'"></span>
+            </div>
+            <div>
+              <span class="badge" :class="statusClass(batch.status)" x-text="batch.status"></span>
+            </div>
+            <div class="text-gray-500 text-xs" x-text="batch.created_at?.slice(0,19)"></div>
+            <div class="space-x-2">
+              <span class="text-gray-500 text-xs" x-text="batch.tasks.filter(t => t.status === 'done').length + '/' + batch.tasks.length + ' 完成'"></span>
+              <button x-show="batch.tasks.some(t => t.status === 'running' || t.status === 'pending')" @click.stop="cancelBatchTasks(batch.batch_id)" class="text-amber-300 hover:text-amber-200 text-xs">取消</button>
+              <button x-show="batch.tasks.every(t => t.status !== 'running' && t.status !== 'pending')" @click.stop="deleteBatchTasks(batch.batch_id)" class="text-rose-300 hover:text-rose-200 text-xs">删除</button>
+            </div>
+          </div>
+          <!-- 批量任务子行 -->
+          <div x-show="isBatchExpanded(batch.batch_id)" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100">
+            <template x-for="t in batch.tasks" :key="'sub-' + t.id">
+              <div class="grid grid-cols-[32px_1fr_1.5fr_1fr_80px_120px_100px] gap-2 px-3 py-2 bg-black/20 hover:bg-white/5 transition items-center border-t border-white/5">
+                <div class="pl-3">
+                  <div class="w-1.5 h-1.5 rounded-full bg-gray-500"></div>
+                </div>
+                <div class="text-gray-500 text-xs" x-text="'#' + t.id"></div>
+                <div class="text-gray-300 text-sm" x-text="t.package_name || t.filename"></div>
+                <div class="text-gray-400 text-xs" x-text="t.device_serial"></div>
+                <div>
+                  <span class="badge text-xs" :class="statusClass(t.status)" x-text="t.status"></span>
+                </div>
+                <div class="text-gray-500 text-xs" x-text="t.created_at?.slice(0,19)"></div>
+                <div class="space-x-2">
+                  <button @click.stop="viewTaskLogs(t)" class="text-indigo-300 hover:text-indigo-200 text-xs font-medium">日志</button>
+                  <button x-show="t.status==='running'||t.status==='pending'" @click.stop="cancelTask(t.id)" class="text-amber-300 hover:text-amber-200 text-xs">取消</button>
+                  <button x-show="t.status!=='running'&&t.status!=='pending'" @click.stop="deleteTask(t.id)" class="text-rose-300 hover:text-rose-200 text-xs">删除</button>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+      <template x-for="t in singleTasks" :key="'task-' + t.id">
+        <div class="grid grid-cols-[32px_1fr_1.5fr_1fr_80px_120px_100px] gap-2 px-3 py-2.5 border-b border-white/5 hover:bg-white/5 transition items-center">
+          <div></div>
+          <div class="text-gray-500 text-xs" x-text="'#' + t.id"></div>
+          <div class="font-medium text-gray-200" x-text="t.package_name || t.filename"></div>
+          <div class="text-gray-400 text-xs" x-text="t.device_serial"></div>
+          <div>
+            <span class="badge" :class="statusClass(t.status)" x-text="t.status"></span>
+          </div>
+          <div class="text-gray-500 text-xs" x-text="t.created_at?.slice(0,19)"></div>
+          <div class="space-x-2">
+            <button @click="viewTaskLogs(t)" class="text-indigo-300 hover:text-indigo-200 text-xs font-medium">日志</button>
+            <button x-show="t.status==='running'||t.status==='pending'" @click="cancelTask(t.id)" class="text-amber-300 hover:text-amber-200 text-xs">取消</button>
+            <button x-show="t.status!=='running'&&t.status!=='pending'" @click="deleteTask(t.id)" class="text-rose-300 hover:text-rose-200 text-xs">删除</button>
+          </div>
+        </div>
+      </template>
+      <div x-show="tasks.length === 0" class="text-center text-gray-500 py-10">暂无任务</div>
+    </div>
+  </div>
+
+  <!-- 日志弹窗 -->
+  <div x-show="logModal" class="fixed inset-0 glass-modal flex items-center justify-center z-50" @click.self="closeLogModal()" x-transition>
+    <div class="glass-card w-[750px] max-h-[85vh] flex flex-col shadow-2xl" @click.stop>
+      <div class="flex justify-between items-center px-5 py-4 border-b border-white/10">
+        <div class="flex items-center gap-3">
+          <h3 class="font-semibold text-gray-100">任务日志 <span class="text-gray-500">#<span x-text="logTaskId"></span></span></h3>
+          <span x-show="logStreaming" class="badge bg-emerald-500/15 text-emerald-300 border border-emerald-500/20 animate-pulse">LIVE</span>
+        </div>
+        <button @click="closeLogModal()" class="text-gray-500 hover:text-gray-300 text-xl transition">&times;</button>
+      </div>
+      <div class="flex-1 overflow-y-auto bg-[#030408] text-emerald-400 font-mono text-xs leading-relaxed p-5" x-ref="logContainer">
+        <template x-for="(line,i) in logLines" :key="i"><div x-text="line" class="py-0.5 hover:bg-white/5 px-1 -mx-1 rounded"></div></template>
+        <div x-show="logLines.length===0" class="text-gray-600">等待日志...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 测试报告 -->
+<div x-show="tab==='reports'" x-cloak>
+  <h2 class="text-lg font-semibold text-gray-100 mb-4 tracking-tight">测试报告</h2>
+  <div class="glass-card p-5">
+    <div class="flex justify-between items-center mb-3">
+      <h3 class="font-semibold text-gray-200 text-sm tracking-wide">报告列表 (<span x-text="reports.length"></span>)</h3>
+      <button x-show="reports.length>0" @click="deleteAllReports()" class="btn-glass btn-danger">全部删除</button>
+    </div>
+    <table class="w-full"><thead><tr class="border-b border-white/10"><th>ID</th><th>包名</th><th>类型</th><th>状态</th><th>时间</th><th>操作</th></tr></thead>
+    <tbody><template x-for="r in reports" :key="r.id"><tr>
+      <td class="text-gray-500" x-text="'#'+r.id"></td>
+      <td class="font-medium text-gray-200" x-text="r.package_name"></td>
+      <td><span class="badge" :class="r.batch_id?'bg-indigo-500/15 text-indigo-200 border border-indigo-500/20':'bg-white/5 text-gray-300 border border-white/10'" x-text="r.batch_id?'批量':'单包'"></span></td>
+      <td><span class="badge" :class="statusClass(r.status)" x-text="r.status"></span></td>
+      <td class="text-gray-500 text-xs" x-text="r.created_at?.slice(0,19)"></td>
+      <td class="space-x-2">
+        <a :href="'/api/reports/'+r.id" target="_blank" class="text-indigo-300 hover:text-indigo-200 text-xs font-medium">查看</a>
+        <button @click="deleteReport(r.id)" class="text-rose-300 hover:text-rose-200 text-xs">删除</button>
+      </td>
+    </tr></template></tbody></table>
+  </div>
+</div>
+
+<!-- 设备管理 -->
+<div x-show="tab==='devices'" x-cloak>
+  <h2 class="text-lg font-semibold text-gray-100 mb-4 tracking-tight">设备管理</h2>
+
+  <!-- 负载均衡控制面板 -->
+  <div class="glass-card p-5 mb-4">
+    <div class="flex justify-between items-center mb-3">
+      <h3 class="font-semibold text-gray-200 text-sm tracking-wide">负载均衡</h3>
+      <span class="text-xs px-2 py-1 bg-indigo-500/15 text-indigo-200 border border-indigo-500/20 rounded-md" x-text="lbStats.strategy||'least_tasks'"></span>
+    </div>
+    <div class="grid grid-cols-3 gap-3 mb-4">
+      <div class="text-center p-3 glass-inset rounded-lg">
+        <div class="text-2xl font-bold text-gray-100" x-text="lbStats.online_devices||0"></div>
+        <div class="text-xs text-gray-500">在线设备</div>
+      </div>
+      <div class="text-center p-3 glass-inset rounded-lg">
+        <div class="text-2xl font-bold text-gray-100" x-text="(lbStats.avg_load||0).toFixed(1)"></div>
+        <div class="text-xs text-gray-500">平均负载</div>
+      </div>
+      <div class="text-center p-3 glass-inset rounded-lg">
+        <div class="text-2xl font-bold text-gray-100" x-text="lbStats.max_load||0"></div>
+        <div class="text-xs text-gray-500">最高负载</div>
+      </div>
+    </div>
+    <div class="flex gap-2">
+      <button @click="setLbStrategy('least_tasks')" class="px-3 py-1.5 text-xs rounded-lg border transition" :class="lbStats.strategy==='least_tasks'?'bg-indigo-500/20 text-indigo-200 border-indigo-500/40':'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10'">最少任务</button>
+      <button @click="setLbStrategy('round_robin')" class="px-3 py-1.5 text-xs rounded-lg border transition" :class="lbStats.strategy==='round_robin'?'bg-indigo-500/20 text-indigo-200 border-indigo-500/40':'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10'">轮询</button>
+      <button @click="setLbStrategy('weighted')" class="px-3 py-1.5 text-xs rounded-lg border transition" :class="lbStats.strategy==='weighted'?'bg-indigo-500/20 text-indigo-200 border-indigo-500/40':'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10'">加权</button>
+    </div>
+  </div>
+
+  <div class="glass-card p-5 mb-4">
+    <h3 class="font-semibold text-gray-200 text-sm tracking-wide mb-3">WiFi ADB 连接</h3>
+    <div class="flex gap-3 items-end">
+      <div>
+        <span class="text-sm text-gray-400 block mb-1">设备地址</span>
+        <input x-model="wifiAddr" placeholder="192.168.1.100:5555" class="glass-input w-64">
+      </div>
+      <button @click="connectWifi()" class="btn-glass btn-primary">连接</button>
+      <button @click="disconnectWifi()" class="btn-glass">断开</button>
+    </div>
+    <div x-show="wifiMsg" class="mt-2 text-sm font-medium" :class="wifiOk?'text-emerald-400':'text-rose-400'" x-text="wifiMsg"></div>
+  </div>
+  <div class="glass-card p-5 mb-4" x-show="agents.length>0">
+    <h3 class="font-semibold text-gray-200 text-sm tracking-wide mb-3">在线 Agent (<span x-text="agents.length"></span>)</h3>
+    <div class="grid grid-cols-3 gap-3">
+      <template x-for="a in agents" :key="a.agent_id">
+        <div class="glass-inset rounded-lg p-3 border-l-2 border-l-emerald-400">
+          <div class="flex items-center gap-2">
+            <div class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_6px_rgba(52,211,153,0.6)]"></div>
+            <span class="font-medium text-sm text-gray-200" x-text="a.hostname"></span>
+          </div>
+          <div class="text-xs text-gray-500 mt-1">
+            <span x-text="a.device_count"></span> 台设备 | <span x-text="a.agent_id"></span>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+  <div class="glass-card p-5">
+    <div class="flex justify-between items-center mb-3">
+      <h3 class="font-semibold text-gray-200 text-sm tracking-wide">已连接设备</h3>
+      <button @click="loadDevices()" class="text-indigo-300 hover:text-indigo-200 text-xs font-medium">刷新</button>
+    </div>
+    <div class="grid grid-cols-2 gap-3">
+      <template x-for="d in devices" :key="d.serial">
+        <div class="glass-inset rounded-xl p-4 hover:border-white/15 hover:bg-white/5 transition border border-transparent">
+          <div class="flex items-center gap-2">
+            <div class="font-semibold text-sm text-gray-200" x-text="d.serial"></div>
+            <span class="text-xs px-2 py-0.5 rounded-full font-medium flex items-center gap-1 border" :class="d.transport==='usb'?'bg-blue-500/10 text-blue-300 border-blue-500/20':'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'">
+              <svg x-show="d.transport==='usb'" class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z" />
+              </svg>
+              <svg x-show="d.transport==='wifi'" class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8.288 15.038a5.634 5.634 0 1 1 7.424 0M12 20.25h.008v.008H12v-.008Z" />
+              </svg>
+              <span x-text="d.transport==='usb'?'USB':'WiFi'"></span>
+            </span>
+            <span class="text-emerald-400 text-xs font-medium" x-text="d.status"></span>
+          </div>
+          <div class="text-xs text-gray-500 mt-1" x-text="d.model||'未知'"></div>
+          <div class="text-xs text-indigo-300 mt-1" x-show="d.agent_hostname">来源: <span x-text="d.agent_hostname"></span></div>
+        </div>
+      </template>
+      <div x-show="devices.length===0" class="text-gray-500 col-span-2 text-center py-10 text-sm">暂无设备连接</div>
+    </div>
+  </div>
+</div>
+
+<!-- 项目介绍 -->
+<div x-show="tab==='about'" x-cloak class="fixed inset-0 left-56 z-50">
+  <iframe src="/static/projects-showcase.html" class="w-full h-full border-0"></iframe>
+</div>
+
+</main>
+
+<script>
+function app() {
+  return {
+    tab:'dashboard', packages:[], devices:[], tasks:[], reports:[], agents:[], deviceLoads:[], lbStats:{},
+    uploading:false, showCreateTask:false,
+    newTask:{device_serial:'', autoDistribute:false}, taskSelectedPkgs:[], selectedPackages:[],
+    wifiAddr:'', wifiMsg:'', wifiOk:false,
+    logModal:false, logTaskId:null, logLines:[], logStreaming:false, _eventSource:null,
+    expandedBatches:[],
+
+    get taskBatches() {
+      const batches = [];
+      const seen = new Set();
+      this.tasks.forEach(t => {
+        if (!t.batch_id || seen.has(t.batch_id)) return;
+        seen.add(t.batch_id);
+        const batchTasks = this.tasks.filter(tt => tt.batch_id === t.batch_id);
+        const statuses = batchTasks.map(tt => tt.status);
+        let status = 'done';
+        if (statuses.includes('running')) status = 'running';
+        else if (statuses.includes('failed')) status = 'failed';
+        else if (statuses.includes('pending')) status = 'pending';
+        batches.push({ batch_id: t.batch_id, tasks: batchTasks, created_at: t.created_at, status });
+      });
+      return batches.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    },
+
+    get singleTasks() {
+      return this.tasks
+        .filter(t => !t.batch_id)
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    },
+
+    isBatchExpanded(batchId) {
+      return this.expandedBatches.includes(batchId);
+    },
+
+    toggleBatch(batchId) {
+      if (this.expandedBatches.includes(batchId)) {
+        this.expandedBatches = this.expandedBatches.filter(id => id !== batchId);
+      } else {
+        this.expandedBatches = [...this.expandedBatches, batchId];
+      }
+    },
+
+    async init(){
+      await Promise.all([this.loadPackages(),this.loadDevices(),this.loadTasks(),this.loadReports(),this.loadAgents(),this.loadDeviceLoads(),this.loadLbStats()]);
+      setInterval(()=>{this.loadTasks();this.loadDevices();this.loadReports();this.loadAgents();this.loadDeviceLoads();this.loadLbStats()},5000);
+    },
+    async loadPackages(){this.packages=await this.api('/api/packages')},
+    async loadDevices(){this.devices=(await this.api('/api/devices')).filter(d=>!d.error)},
+    async loadTasks(){this.tasks=await this.api('/api/tasks')},
+    async loadReports(){this.reports=await this.api('/api/reports')},
+    async loadAgents(){this.agents=await this.api('/api/devices/agents')},
+    async loadDeviceLoads(){const r=await this.api('/api/tasks/stats/loadbalancer');this.deviceLoads=r.devices||[]},
+    async loadLbStats(){this.lbStats=await this.api('/api/tasks/stats/loadbalancer')},
+    async setLbStrategy(s){await this.api('/api/tasks/strategy?strategy='+s,{method:'POST'});await this.loadLbStats()},
+    async api(url,opts){try{const r=await fetch(url,opts);return await r.json()}catch(e){console.error(e);return[]}},
+
+    async handleDrop(e){e.target.classList.remove('drag-over');for(const f of e.dataTransfer.files)await this.uploadFile(f)},
+    async handleFileSelect(e){for(const f of e.target.files)await this.uploadFile(f);e.target.value=''},
+    async uploadFile(f){
+      this.uploading=true;
+      const startTime=Date.now();
+      const fd=new FormData();
+      fd.append('file',f);
+      console.log(`[Upload] 开始上传: ${f.name}, 大小: ${(f.size/1024/1024).toFixed(2)}MB`);
+      const r=await this.api('/api/packages/upload',{method:'POST',body:fd});
+      console.log(`[Upload] 上传完成: ${f.name}, 耗时: ${Date.now()-startTime}ms`,r);
+      if(r&&r.id){
+        this.packages.unshift({
+          id:r.id,
+          filename:r.filename,
+          package_name:r.package_name||'解析中...',
+          file_type:r.file_type,
+          file_size:r.file_size,
+          source:r.source||'upload',
+          created_at:new Date().toISOString()
+        });
+      }
+      this.uploading=false;
+      this.loadPackages();
+    },
+
+    async deletePackage(id){if(!confirm('确定删除？'))return;await this.api('/api/packages/'+id,{method:'DELETE'});this.selectedPackages=this.selectedPackages.filter(x=>x!==id);await this.loadPackages()},
+    async pushPackage(id){
+      const devices = this.devices.filter(d=>d.status==='device');
+      if(!devices.length){alert('没有可用的设备');return}
+      const deviceSerials = devices.map(d=>d.serial);
+      if(!confirm(`确定推送到 ${deviceSerials.length} 台设备？`))return;
+      this.uploading=true;
+      const r=await this.api('/api/packages/'+id+'/push',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_serials:deviceSerials})});
+      this.uploading=false;
+      const success=r.pushed_devices.filter(x=>x.success).length;
+      const failed=r.pushed_devices.filter(x=>!x.success).length;
+      alert(`推送完成: ${success} 成功, ${failed} 失败`);
+    },
+    toggleAllPackages(e){this.selectedPackages=e.target.checked?this.packages.map(p=>p.id):[]},
+    async batchDeletePackages(){if(!confirm('确定删除选中的包？'))return;await this.api('/api/packages/batch-delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:this.selectedPackages})});this.selectedPackages=[];await this.loadPackages()},
+    async deleteAllPackages(){if(!confirm('确定删除全部包？'))return;await this.api('/api/packages/all',{method:'DELETE'});this.selectedPackages=[];await this.loadPackages()},
+
+    openCreateTask(pkg){this.tab='tasks';this.showCreateTask=true;this.taskSelectedPkgs=[pkg.id]},
+    toggleAllTaskPackages(e){this.taskSelectedPkgs=e.target.checked?this.packages.map(p=>p.id):[]},
+    async createTasks(){
+      if(!this.taskSelectedPkgs.length)return alert('请选择至少一个包');
+      const autoAssign = !this.newTask.device_serial;
+      if(this.taskSelectedPkgs.length===1){
+        const body = {package_id:this.taskSelectedPkgs[0], device_serial:this.newTask.device_serial||null, auto_assign:autoAssign};
+        const r = await this.api('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+        if(r.device_serial)alert(`任务已创建，分配到设备: ${r.device_serial.slice(0,16)}...`);
+      }else{
+        const body = {package_ids:this.taskSelectedPkgs, device_serial:this.newTask.device_serial||null, auto_distribute:this.newTask.autoDistribute};
+        const r = await this.api('/api/tasks/batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+        if(r.distributed)alert(`批量任务已创建，分散到 ${Object.keys(r.tasks.map(t=>t.device_serial).filter((v,i,a)=>a.indexOf(v)===i)).length} 台设备`);
+        else alert(`批量任务已创建，共 ${r.created} 个任务`);
+      }
+      this.showCreateTask=false;this.taskSelectedPkgs=[];this.newTask.device_serial='';this.newTask.autoDistribute=false;await this.loadTasks();
+    },
+    async cancelTask(id){await this.api('/api/tasks/'+id+'/cancel',{method:'POST'});await this.loadTasks()},
+    async deleteTask(id){if(!confirm('确定删除？'))return;await this.api('/api/tasks/'+id,{method:'DELETE'});await this.loadTasks()},
+    async cancelBatchTasks(batchId){if(!confirm('确定取消该批量任务中所有未完成的任务？'))return;await this.api('/api/tasks/batch/'+batchId+'/cancel',{method:'POST'});await this.loadTasks()},
+    async deleteBatchTasks(batchId){if(!confirm('确定删除该批量任务？'))return;await this.api('/api/tasks/batch/'+batchId,{method:'DELETE'});this.expandedBatches=this.expandedBatches.filter(id=>id!==batchId);await this.loadTasks()},
+    async deleteAllTasks(){if(!confirm('确定删除全部任务？'))return;await this.api('/api/tasks/all/clear',{method:'DELETE'});await this.loadTasks()},
+
+    async deleteReport(id){if(!confirm('确定删除？'))return;await this.api('/api/reports/'+id,{method:'DELETE'});await this.loadReports()},
+    async deleteAllReports(){if(!confirm('确定删除全部报告？'))return;await this.api('/api/reports/all/clear',{method:'DELETE'});await this.loadReports()},
+
+    async viewTaskLogs(task){
+      this.logTaskId=task.id;this.logLines=[];this.logModal=true;this.logStreaming=false;
+      const data=await this.api('/api/tasks/'+task.id);
+      this.logLines=data.logs||[];
+      this.$nextTick(()=>{const c=this.$refs.logContainer;if(c)c.scrollTop=c.scrollHeight});
+      if(data.status==='running'||data.status==='pending'){
+        this.logStreaming=true;
+        this._startLogPolling(task.id);
+      }
+    },
+    _startLogPolling(taskId){
+      if(this._logPoller)clearInterval(this._logPoller);
+      this._logPoller=setInterval(async()=>{
+        const data=await this.api('/api/tasks/'+taskId);
+        if(!data||!data.logs)return;
+        this.logLines=data.logs;
+        this.$nextTick(()=>{const c=this.$refs.logContainer;if(c)c.scrollTop=c.scrollHeight});
+        if(data.status&&!['running','pending'].includes(data.status)){
+          this.logStreaming=false;
+          clearInterval(this._logPoller);this._logPoller=null;
+          this.loadTasks();
+        }
+      },1500);
+    },
+    closeLogModal(){
+      this.logModal=false;this.logStreaming=false;
+      if(this._eventSource){this._eventSource.close();this._eventSource=null}
+      if(this._logPoller){clearInterval(this._logPoller);this._logPoller=null}
+    },
+
+    async connectWifi(){const r=await this.api('/api/devices/connect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:this.wifiAddr})});this.wifiOk=r.success;this.wifiMsg=r.message;await this.loadDevices()},
+    async disconnectWifi(){const r=await this.api('/api/devices/disconnect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:this.wifiAddr})});this.wifiMsg=r.message;this.wifiOk=r.success;await this.loadDevices()},
+
+    statusClass(s){return{'done':'bg-emerald-500/15 text-emerald-200 border border-emerald-500/20','success':'bg-emerald-500/15 text-emerald-200 border border-emerald-500/20','running':'bg-indigo-500/15 text-indigo-200 border border-indigo-500/20','pending':'bg-amber-500/15 text-amber-200 border border-amber-500/20','failed':'bg-rose-500/15 text-rose-200 border border-rose-500/20','cancelled':'bg-white/5 text-gray-400 border border-white/10','partial':'bg-orange-500/15 text-orange-200 border border-orange-500/20'}[s]||'bg-white/5 text-gray-400 border border-white/10'},
+    formatSize(b){if(!b)return'0B';const k=1024,s=['B','KB','MB','GB'],i=Math.floor(Math.log(b)/Math.log(k));return(b/Math.pow(k,i)).toFixed(1)+s[i]}
+  }
+}
+</script>
+</body>
+</html>
