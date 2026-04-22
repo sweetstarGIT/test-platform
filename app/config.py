@@ -13,7 +13,7 @@ API_KEY = os.getenv("TEST_PLATFORM_API_KEY", "tp-dev-key-2026")
 # testcase 项目路径（集成现有测试框架）
 TESTCASE_PROJECT_DIR = os.getenv(
     "TESTCASE_PROJECT_DIR",
-    os.path.join(os.path.dirname(BASE_DIR), "testcase")
+    r"C:\sweetstar\UI-Automation"
 )
 
 # 将 testcase 项目加入 Python 路径，使其模块可被 import
