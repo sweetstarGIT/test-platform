@@ -20,18 +20,21 @@ class CreateTaskRequest(BaseModel):
     package_id: int
     device_serial: Optional[str] = None  # None 表示自动分配
     auto_assign: bool = False  # 是否启用自动分配
+    new_package: bool = False  # 是否使用新包模式
 
 
 class BatchCreateRequest(BaseModel):
     package_ids: List[int]
     device_serial: Optional[str] = None
     auto_distribute: bool = False  # 是否自动分散到多台设备
+    new_package: bool = False  # 是否使用新包模式
 
 
 class BatchDistributeRequest(BaseModel):
     """高级批量任务请求 - 自动负载均衡分散"""
     package_ids: List[int]
     strategy: str = "least_tasks"  # least_tasks / round_robin / weighted
+    new_package: bool = False  # 是否使用新包模式
 
 
 @router.post("")
@@ -52,6 +55,7 @@ def create_task(req: CreateTaskRequest, db: Session = Depends(get_db)):
         package_id=req.package_id,
         device_serial=device_serial,
         status="pending",
+        new_package=req.new_package,
     )
     db.add(task)
     db.commit()
@@ -81,6 +85,7 @@ def list_tasks(db: Session = Depends(get_db)):
             "batch_id": t.batch_id,
             "status": t.status,
             "error": t.error,
+            "new_package": t.new_package,
             "created_at": t.created_at.isoformat() if t.created_at else "",
             "started_at": t.started_at.isoformat() if t.started_at else "",
             "finished_at": t.finished_at.isoformat() if t.finished_at else "",
@@ -111,6 +116,7 @@ def get_task(task_id: int, db: Session = Depends(get_db)):
         "batch_id": task.batch_id,
         "status": task.status,
         "error": task.error,
+        "new_package": task.new_package,
         "logs": logs,
         "report_path": task.report_path,
         "created_at": task.created_at.isoformat() if task.created_at else "",
@@ -247,6 +253,7 @@ def batch_create_tasks(req: BatchCreateRequest, db: Session = Depends(get_db)):
             device_serial=device_serial,
             batch_id=batch_id,
             status="pending",
+            new_package=req.new_package,
         )
         db.add(task)
         db.commit()
@@ -255,7 +262,8 @@ def batch_create_tasks(req: BatchCreateRequest, db: Session = Depends(get_db)):
         created.append({
             "id": task.id,
             "package_name": pkg.package_name,
-            "device_serial": device_serial
+            "device_serial": device_serial,
+            "new_package": task.new_package,
         })
 
         # 更新负载均衡器状态
@@ -312,6 +320,7 @@ def batch_distribute_tasks(req: BatchDistributeRequest, db: Session = Depends(ge
             device_serial=device_serial,
             batch_id=batch_id,
             status="pending",
+            new_package=req.new_package,
         )
         db.add(task)
         db.commit()
@@ -321,7 +330,8 @@ def batch_distribute_tasks(req: BatchDistributeRequest, db: Session = Depends(ge
         created.append({
             "id": task.id,
             "package_name": pkg.package_name,
-            "device_serial": device_serial
+            "device_serial": device_serial,
+            "new_package": task.new_package,
         })
 
         device_assignment[device_serial] = device_assignment.get(device_serial, 0) + 1

@@ -1,6 +1,6 @@
 """数据模型"""
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Text, Enum
+from sqlalchemy import Column, Integer, String, DateTime, Text, Enum, Boolean
 from app.database import Base
 
 
@@ -31,6 +31,7 @@ class Task(Base):
     created_at = Column(DateTime, default=datetime.now)
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
+    new_package = Column(Boolean, default=False)  # 是否使用新包模式测试
 
 
 class Report(Base):

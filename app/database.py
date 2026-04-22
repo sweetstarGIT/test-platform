@@ -18,3 +18,13 @@ def get_db():
 
 def init_db():
     Base.metadata.create_all(bind=engine)
+
+    # 迁移：为旧数据库添加 new_package 列
+    from sqlalchemy import inspect, text
+    inspector = inspect(engine)
+    columns = [c['name'] for c in inspector.get_columns('tasks')]
+    if 'new_package' not in columns:
+        with engine.connect() as conn:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN new_package BOOLEAN DEFAULT 0"))
+            conn.commit()
+        print("[DB Migration] 已添加 tasks.new_package 列")

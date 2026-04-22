@@ -313,6 +313,10 @@ def _run_rpk_subprocess(task_id: int, task: Task, pkg: Package) -> Dict:
             "--report", os.path.join(TESTCASE_PROJECT_DIR, "reports", f"report_task_{task_id}.html"),
         ]
 
+        if task.new_package:
+            cmd.append("--new-package")
+            append_log(task_id, "启用新包模式 (--new-package)")
+
         append_log(task_id, f"启动子进程: {python_exe} -u main.py --device {task.device_serial}")
         append_log(task_id, f"工作目录: {TESTCASE_PROJECT_DIR}")
 

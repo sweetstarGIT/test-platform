@@ -246,9 +246,13 @@ tbody tr:hover{background:rgba(255,255,255,0.03)}
           <option value="">自动分配</option>
           <template x-for="d in devices" :key="d.serial"><option :value="d.serial" x-text="d.serial+' ('+(d.model||'未知')+')'"></option></template>
         </select>
-        <label class="flex items-center gap-2 text-xs text-gray-500 cursor-pointer">
+        <label class="flex items-center gap-2 text-xs text-gray-500 cursor-pointer mb-1">
           <input type="checkbox" x-model="newTask.autoDistribute" class="rounded bg-black/30 border-white/20">
           <span>批量分散到多台设备</span>
+        </label>
+        <label class="flex items-center gap-2 text-xs text-gray-500 cursor-pointer">
+          <input type="checkbox" x-model="newTask.new_package" class="rounded bg-black/30 border-white/20">
+          <span>新包模式</span>
         </label>
         <div x-show="deviceLoads.length>0" class="mt-3 border-t border-white/10 pt-3">
           <div class="text-xs text-gray-500 mb-2">设备负载</div>
@@ -505,7 +509,7 @@ function app() {
   return {
     tab:'dashboard', packages:[], devices:[], tasks:[], reports:[], agents:[], deviceLoads:[], lbStats:{},
     uploading:false, showCreateTask:false,
-    newTask:{device_serial:'', autoDistribute:false}, taskSelectedPkgs:[], selectedPackages:[],
+    newTask:{device_serial:'', autoDistribute:false, new_package:false}, taskSelectedPkgs:[], selectedPackages:[],
     wifiAddr:'', wifiMsg:'', wifiOk:false,
     logModal:false, logTaskId:null, logLines:[], logStreaming:false, _eventSource:null,
     expandedBatches:[],
@@ -607,16 +611,16 @@ function app() {
       if(!this.taskSelectedPkgs.length)return alert('请选择至少一个包');
       const autoAssign = !this.newTask.device_serial;
       if(this.taskSelectedPkgs.length===1){
-        const body = {package_id:this.taskSelectedPkgs[0], device_serial:this.newTask.device_serial||null, auto_assign:autoAssign};
+        const body = {package_id:this.taskSelectedPkgs[0], device_serial:this.newTask.device_serial||null, auto_assign:autoAssign, new_package:this.newTask.new_package};
         const r = await this.api('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
         if(r.device_serial)alert(`任务已创建，分配到设备: ${r.device_serial.slice(0,16)}...`);
       }else{
-        const body = {package_ids:this.taskSelectedPkgs, device_serial:this.newTask.device_serial||null, auto_distribute:this.newTask.autoDistribute};
+        const body = {package_ids:this.taskSelectedPkgs, device_serial:this.newTask.device_serial||null, auto_distribute:this.newTask.autoDistribute, new_package:this.newTask.new_package};
         const r = await this.api('/api/tasks/batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
         if(r.distributed)alert(`批量任务已创建，分散到 ${Object.keys(r.tasks.map(t=>t.device_serial).filter((v,i,a)=>a.indexOf(v)===i)).length} 台设备`);
         else alert(`批量任务已创建，共 ${r.created} 个任务`);
       }
-      this.showCreateTask=false;this.taskSelectedPkgs=[];this.newTask.device_serial='';this.newTask.autoDistribute=false;await this.loadTasks();
+      this.showCreateTask=false;this.taskSelectedPkgs=[];this.newTask.device_serial='';this.newTask.autoDistribute=false;this.newTask.new_package=false;await this.loadTasks();
     },
     async cancelTask(id){await this.api('/api/tasks/'+id+'/cancel',{method:'POST'});await this.loadTasks()},
     async deleteTask(id){if(!confirm('确定删除？'))return;await this.api('/api/tasks/'+id,{method:'DELETE'});await this.loadTasks()},
