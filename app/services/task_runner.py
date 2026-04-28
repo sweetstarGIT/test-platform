@@ -343,6 +343,9 @@ def _run_rpk_subprocess(task_id: int, task: Task, pkg: Package) -> Dict:
             _running_processes[task_id] = proc
 
         # 实时读取子进程输出并追加到日志（用 readline 替代 for 迭代，避免内部缓冲）
+        has_error_keyword = False
+        error_keywords = ["❌", "失败", "failed", "[FAILED]", "异常", "error", "traceback"]
+
         while True:
             line = proc.stdout.readline()
             if not line and proc.poll() is not None:
@@ -350,6 +353,9 @@ def _run_rpk_subprocess(task_id: int, task: Task, pkg: Package) -> Dict:
             line = line.rstrip("\n\r")
             if line:
                 append_log(task_id, line)
+                # 检测日志中的失败关键词（覆盖格式不匹配的情况）
+                if any(kw in line for kw in error_keywords):
+                    has_error_keyword = True
                 # 解析功能模块结果
                 match = module_pattern.search(line)
                 if match and '->' in line and ':' in line:
@@ -366,13 +372,13 @@ def _run_rpk_subprocess(task_id: int, task: Task, pkg: Package) -> Dict:
 
         exit_code = proc.returncode
 
-        # 判断测试结果：检查退出码和模块结果
+        # 判断测试结果：检查退出码、模块结果和日志中的失败关键词
         has_failed_module = any(
             m.get("status") == "failed"
             for m in result["module_results"].values()
         )
 
-        if exit_code == 0 and not has_failed_module:
+        if exit_code == 0 and not has_failed_module and not has_error_keyword:
             result["status"] = "success"
             result["steps"].append({"name": "执行测试", "status": "success"})
         elif exit_code == -15:
@@ -380,7 +386,14 @@ def _run_rpk_subprocess(task_id: int, task: Task, pkg: Package) -> Dict:
             result["steps"].append({"name": "执行测试", "status": "cancelled"})
         else:
             result["status"] = "failed"
-            error_msg = f"退出码: {exit_code}" if exit_code != 0 else "部分功能模块测试失败"
+            if exit_code != 0:
+                error_msg = f"退出码: {exit_code}"
+            elif has_failed_module:
+                error_msg = "部分功能模块测试失败"
+            elif has_error_keyword:
+                error_msg = "日志中检测到失败信息"
+            else:
+                error_msg = "测试执行异常"
             result["steps"].append({"name": "执行测试", "status": "failed", "error": error_msg})
 
         # 尝试读取 testcase 生成的报告来提取结果详情
