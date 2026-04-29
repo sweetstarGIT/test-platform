@@ -355,7 +355,9 @@ def _run_rpk_subprocess(task_id: int, task: Task, pkg: Package) -> Dict:
                 append_log(task_id, line)
                 # 检测日志中的失败关键词（覆盖格式不匹配的情况）
                 if any(kw in line for kw in error_keywords):
-                    has_error_keyword = True
+                    # 排除统计类否定表述，如"失败包数: 0"
+                    if not re.search(r'失败\s*[:：]\s*0|failed\s*[:：]\s*0', line):
+                        has_error_keyword = True
                 # 解析功能模块结果
                 match = module_pattern.search(line)
                 if match and '->' in line and ':' in line:
@@ -373,8 +375,13 @@ def _run_rpk_subprocess(task_id: int, task: Task, pkg: Package) -> Dict:
         exit_code = proc.returncode
 
         # 判断测试结果：检查退出码、模块结果和日志中的失败关键词
+        # skipped 也算失败（模块未找到或未执行）
         has_failed_module = any(
-            m.get("status") == "failed"
+            m.get("status") in ("failed", "skipped")
+            for m in result["module_results"].values()
+        )
+        has_skipped_module = any(
+            m.get("status") == "skipped"
             for m in result["module_results"].values()
         )
 
@@ -388,6 +395,8 @@ def _run_rpk_subprocess(task_id: int, task: Task, pkg: Package) -> Dict:
             result["status"] = "failed"
             if exit_code != 0:
                 error_msg = f"退出码: {exit_code}"
+            elif has_skipped_module:
+                error_msg = "部分功能模块被跳过"
             elif has_failed_module:
                 error_msg = "部分功能模块测试失败"
             elif has_error_keyword:
