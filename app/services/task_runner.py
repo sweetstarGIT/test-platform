@@ -343,8 +343,7 @@ def _run_rpk_subprocess(task_id: int, task: Task, pkg: Package) -> Dict:
             _running_processes[task_id] = proc
 
         # 实时读取子进程输出并追加到日志（用 readline 替代 for 迭代，避免内部缓冲）
-        has_error_keyword = False
-        error_keywords = ["❌", "失败", "failed", "[FAILED]", "异常", "error", "traceback"]
+        failed_package_count = 0
 
         while True:
             line = proc.stdout.readline()
@@ -353,11 +352,10 @@ def _run_rpk_subprocess(task_id: int, task: Task, pkg: Package) -> Dict:
             line = line.rstrip("\n\r")
             if line:
                 append_log(task_id, line)
-                # 检测日志中的失败关键词（覆盖格式不匹配的情况）
-                if any(kw in line for kw in error_keywords):
-                    # 排除统计类否定表述，如"失败包数: 0"
-                    if not re.search(r'失败\s*[:：]\s*0|failed\s*[:：]\s*0', line):
-                        has_error_keyword = True
+                # 从摘要行提取失败包数："失败包数: 1" 或 "failed_packages: 1"
+                m = re.search(r'(?:失败包数|failed_packages)\s*[:：]\s*(\d+)', line)
+                if m:
+                    failed_package_count = int(m.group(1))
                 # 解析功能模块结果
                 match = module_pattern.search(line)
                 if match and '->' in line and ':' in line:
@@ -374,7 +372,7 @@ def _run_rpk_subprocess(task_id: int, task: Task, pkg: Package) -> Dict:
 
         exit_code = proc.returncode
 
-        # 判断测试结果：检查退出码、模块结果和日志中的失败关键词
+        # 判断测试结果：检查退出码、模块结果和失败包数
         # skipped 也算失败（模块未找到或未执行）
         has_failed_module = any(
             m.get("status") in ("failed", "skipped")
@@ -385,7 +383,7 @@ def _run_rpk_subprocess(task_id: int, task: Task, pkg: Package) -> Dict:
             for m in result["module_results"].values()
         )
 
-        if exit_code == 0 and not has_failed_module and not has_error_keyword:
+        if exit_code == 0 and not has_failed_module and failed_package_count == 0:
             result["status"] = "success"
             result["steps"].append({"name": "执行测试", "status": "success"})
         elif exit_code == -15:
@@ -395,12 +393,12 @@ def _run_rpk_subprocess(task_id: int, task: Task, pkg: Package) -> Dict:
             result["status"] = "failed"
             if exit_code != 0:
                 error_msg = f"退出码: {exit_code}"
+            elif failed_package_count > 0:
+                error_msg = f"有 {failed_package_count} 个包测试失败"
             elif has_skipped_module:
                 error_msg = "部分功能模块被跳过"
             elif has_failed_module:
                 error_msg = "部分功能模块测试失败"
-            elif has_error_keyword:
-                error_msg = "日志中检测到失败信息"
             else:
                 error_msg = "测试执行异常"
             result["steps"].append({"name": "执行测试", "status": "failed", "error": error_msg})
