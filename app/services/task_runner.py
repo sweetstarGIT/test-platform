@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models import Task, Package, Report
 from app.services import device_service
-from app.config import REPORT_DIR, TESTCASE_PROJECT_DIR
+from app.config import REPORT_DIR, TESTCASE_PROJECT_DIR, CI_WEBHOOK_URL, CI_WEBHOOK_TIMEOUT
 
 # ==================== 设备级并行执行器 ====================
 # 每个设备一个独立的单线程执行器，保证同一设备串行，不同设备并行
@@ -623,3 +623,42 @@ def _check_batch_complete(batch_id: str, db: Session):
     db.add(report)
     db.commit()
     print(f"[Batch] 汇总报告已生成: {batch_id}")
+
+    # 推送到开发后台（如果配置了 CI_WEBHOOK_URL）
+    _notify_webhook(batch_id, pkg_results, overall_status, report_path)
+
+
+def _notify_webhook(batch_id: str, pkg_results: List[Dict], overall_status: str, report_path: str):
+    """批量测试完成后，推送结果到开发后台"""
+    if not CI_WEBHOOK_URL:
+        return
+
+    failed_pkgs = [r for r in pkg_results if r["status"] != "done"]
+    payload = {
+        "batch_id": batch_id,
+        "status": overall_status,
+        "all_passed": overall_status == "success",
+        "total": len(pkg_results),
+        "passed": len(pkg_results) - len(failed_pkgs),
+        "failed": len(failed_pkgs),
+        "failed_packages": [
+            {"name": r["package_name"], "filename": r["filename"], "reason": r["error"] or "测试失败"}
+            for r in failed_pkgs
+        ],
+        "report_url": f"/api/reports/{batch_id}" if report_path else None,
+    }
+
+    try:
+        import urllib.request
+        import urllib.error
+
+        req = urllib.request.Request(
+            CI_WEBHOOK_URL,
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=CI_WEBHOOK_TIMEOUT) as resp:
+            print(f"[Webhook] 推送成功: {resp.status}")
+    except Exception as e:
+        print(f"[Webhook] 推送失败: {e}")

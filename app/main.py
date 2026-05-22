@@ -10,7 +10,7 @@ import json
 
 from app.database import init_db
 from app.config import BASE_DIR
-from app.routers import packages, devices, tasks, reports
+from app.routers import packages, devices, tasks, reports, ci
 from app.agent_manager import agent_manager
 
 app = FastAPI(title="自动化测试平台", version="1.0.0")
@@ -27,6 +27,7 @@ app.include_router(packages.router, prefix="/api/packages", tags=["包管理"])
 app.include_router(devices.router, prefix="/api/devices", tags=["设备管理"])
 app.include_router(tasks.router, prefix="/api/tasks", tags=["测试任务"])
 app.include_router(reports.router, prefix="/api/reports", tags=["测试报告"])
+app.include_router(ci.router, prefix="/api/ci", tags=["CI集成"])
 
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
