@@ -32,6 +32,12 @@ class Task(Base):
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
     new_package = Column(Boolean, default=False)  # 是否使用新包模式测试
+    external_task_id = Column(String(128), nullable=True)  # 开发平台任务ID
+    external_status = Column(String(50), default="")  # 开发平台推送过来的任务状态
+    artifact_url = Column(Text, default="")  # 开发平台包下载地址
+    callback_url = Column(String(500), default="")  # 测试完成后的回调地址
+    callback_sent = Column(Boolean, default=False)  # 是否已回调开发平台
+    callback_error = Column(Text, default="")  # 最近一次回调失败原因
 
 
 class Report(Base):
@@ -45,3 +51,30 @@ class Report(Base):
     html_path = Column(String(500), default="")
     summary = Column(Text, default="{}")
     created_at = Column(DateTime, default=datetime.now)
+
+
+class CiJob(Base):
+    __tablename__ = "ci_jobs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    external_task_id = Column(String(128), nullable=False)
+    package_name = Column(String(255), default="")
+    artifact_url = Column(Text, default="")
+    artifact_filename = Column(String(255), default="")
+    artifact_type = Column(String(20), default="")  # zip / rpk / apk
+    task_status = Column(String(50), default="")
+    status = Column(String(30), default="received")  # received/downloading/extracting/queued/running/done/failed/cancelled
+    current_step = Column(String(50), default="received")
+    device_serial = Column(String(100), default="")
+    package_id = Column(Integer, nullable=True)
+    task_id = Column(Integer, nullable=True)
+    report_id = Column(Integer, nullable=True)
+    callback_url = Column(String(500), default="")
+    callback_sent = Column(Boolean, default=False)
+    callback_error = Column(Text, default="")
+    error = Column(Text, default="")
+    new_package = Column(Boolean, default=True)
+    events = Column(Text, default="[]")
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now)
+    finished_at = Column(DateTime, nullable=True)

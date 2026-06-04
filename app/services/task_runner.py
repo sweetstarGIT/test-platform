@@ -17,7 +17,7 @@ from typing import Dict, List
 
 from sqlalchemy.orm import Session
 from app.database import SessionLocal
-from app.models import Task, Package, Report
+from app.models import Task, Package, Report, CiJob
 from app.services import device_service
 from app.config import REPORT_DIR, TESTCASE_PROJECT_DIR, CI_WEBHOOK_URL, CI_WEBHOOK_TIMEOUT
 
@@ -78,6 +78,47 @@ def append_log(task_id: int, message: str):
         if task_id not in _task_logs:
             _task_logs[task_id] = []
         _task_logs[task_id].append(log_line)
+
+
+def _append_ci_event(job: CiJob, step: str, message: str, status: str = None):
+    try:
+        events = json.loads(job.events) if job.events else []
+    except Exception:
+        events = []
+    events.append({
+        "time": datetime.now().isoformat(timespec="seconds"),
+        "step": step,
+        "message": message,
+    })
+    job.events = json.dumps(events, ensure_ascii=False)
+    job.current_step = step
+    if status:
+        job.status = status
+    job.updated_at = datetime.now()
+
+
+def _get_ci_job(db: Session, task: Task) -> CiJob:
+    if not task.external_task_id:
+        return None
+    return (
+        db.query(CiJob)
+        .filter(CiJob.external_task_id == task.external_task_id)
+        .order_by(CiJob.created_at.desc())
+        .first()
+    )
+
+
+def _update_ci_job_for_task(db: Session, task: Task, step: str, message: str, status: str = None):
+    job = _get_ci_job(db, task)
+    if not job:
+        return
+    job.task_id = task.id
+    job.package_id = task.package_id
+    job.device_serial = task.device_serial
+    if status in ("done", "failed", "cancelled"):
+        job.finished_at = task.finished_at or datetime.now()
+    _append_ci_event(job, step, message, status)
+    db.commit()
 
 
 def get_logs(task_id: int, offset: int = 0) -> List[str]:
@@ -148,6 +189,7 @@ def _run_task(task_id: int):
         # 如果任务已被取消，直接结束（避免覆盖外部批量取消的状态）
         if is_task_cancelled(task_id):
             _update_task(db, task, "cancelled")
+            _update_ci_job_for_task(db, task, "cancelled", "任务已取消", "cancelled")
             append_log(task_id, "任务已取消")
             with _task_logs_lock:
                 task.logs = json.dumps(_task_logs.get(task_id, []), ensure_ascii=False)
@@ -162,12 +204,14 @@ def _run_task(task_id: int):
         pkg = db.query(Package).filter(Package.id == task.package_id).first()
         if not pkg:
             _update_task(db, task, "failed", error="包不存在")
+            _update_ci_job_for_task(db, task, "package_missing", "包不存在", "failed")
             return
 
         # 更新状态
         task.status = "running"
         task.started_at = datetime.now()
         db.commit()
+        _update_ci_job_for_task(db, task, "running", "测试任务开始执行", "running")
 
         append_log(task_id, f"开始测试: {pkg.filename}")
         append_log(task_id, f"目标设备: {task.device_serial}")
@@ -180,8 +224,10 @@ def _run_task(task_id: int):
         if task.device_serial not in serials:
             if is_task_cancelled(task_id):
                 _update_task(db, task, "cancelled")
+                _update_ci_job_for_task(db, task, "cancelled", "任务已取消", "cancelled")
             else:
                 _update_task(db, task, "failed", error=f"设备 {task.device_serial} 未连接")
+                _update_ci_job_for_task(db, task, "device_missing", f"设备 {task.device_serial} 未连接", "failed")
             append_log(task_id, f"设备 {task.device_serial} 未连接")
             return
         append_log(task_id, "设备连接正常")
@@ -207,11 +253,17 @@ def _run_task(task_id: int):
             final_status = "done"
         _update_task(db, task, final_status)
         append_log(task_id, f"测试完成! 状态: {final_status}")
+        job_status = "done" if final_status == "done" else final_status
+        _update_ci_job_for_task(db, task, "test_finished", f"测试完成: {final_status}", job_status)
 
         # 先保存日志到数据库（batch 报告需要读取日志）
         with _task_logs_lock:
             task.logs = json.dumps(_task_logs.get(task_id, []), ensure_ascii=False)
         db.commit()
+
+        # CI 推送的单任务完成后回调开发平台
+        if task.callback_url and not task.batch_id:
+            _notify_task_callback(task.id, db)
 
         # 如果是批量任务，检查同批次是否全部完成
         if task.batch_id:
@@ -223,6 +275,7 @@ def _run_task(task_id: int):
         task = db.query(Task).filter(Task.id == task_id).first()
         if task and not is_task_cancelled(task_id):
             _update_task(db, task, "failed", error=str(e))
+            _update_ci_job_for_task(db, task, "exception", f"任务异常: {e}", "failed")
     finally:
         # 清理进程记录
         with _processes_lock:
@@ -235,6 +288,8 @@ def _run_task(task_id: int):
             db.commit()
             # 检查是否需要清理设备执行器
             _maybe_cleanup_executor(task.device_serial)
+            if task.callback_url and not task.batch_id and task.status in ("done", "failed", "cancelled") and not task.callback_sent:
+                _notify_task_callback(task.id, db)
         db.close()
         _clear_cancelled(task_id)
 
@@ -625,10 +680,77 @@ def _check_batch_complete(batch_id: str, db: Session):
     print(f"[Batch] 汇总报告已生成: {batch_id}")
 
     # 推送到开发后台（如果配置了 CI_WEBHOOK_URL）
-    _notify_webhook(batch_id, pkg_results, overall_status, report_path)
+    _notify_webhook(batch_id, pkg_results, overall_status, report.id)
 
 
-def _notify_webhook(batch_id: str, pkg_results: List[Dict], overall_status: str, report_path: str):
+def _post_json(url: str, payload: Dict, timeout: int = CI_WEBHOOK_TIMEOUT) -> int:
+    """向外部系统 POST JSON，返回 HTTP 状态码。"""
+    import urllib.request
+
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.status
+
+
+def _notify_task_callback(task_id: int, db: Session):
+    """单个 CI 推送任务完成后，按任务 callback_url 回调开发平台。"""
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if not task or not task.callback_url or task.callback_sent:
+        return
+
+    pkg = db.query(Package).filter(Package.id == task.package_id).first()
+    report = db.query(Report).filter(Report.task_id == task.id).order_by(Report.created_at.desc()).first()
+
+    passed = task.status == "done"
+    payload = {
+        "external_task_id": task.external_task_id,
+        "task_id": task.id,
+        "package_id": task.package_id,
+        "package_name": pkg.package_name if pkg else "",
+        "filename": pkg.filename if pkg else "",
+        "artifact_url": task.artifact_url,
+        "status": "success" if passed else "failed",
+        "platform_status": task.status,
+        "passed": passed,
+        "error": task.error or "",
+        "report_id": report.id if report else None,
+        "report_url": f"/api/reports/{report.id}" if report else None,
+        "started_at": task.started_at.isoformat() if task.started_at else "",
+        "finished_at": task.finished_at.isoformat() if task.finished_at else "",
+    }
+
+    try:
+        status_code = _post_json(task.callback_url, payload)
+        task.callback_sent = True
+        task.callback_error = ""
+        job = _get_ci_job(db, task)
+        if job:
+            job.callback_sent = True
+            job.callback_error = ""
+            job.report_id = report.id if report else None
+            job.finished_at = task.finished_at
+            _append_ci_event(job, "callback_sent", f"回调开发平台成功: {status_code}", job.status)
+        db.commit()
+        print(f"[Callback] 任务 {task.id} 回调成功: {status_code}")
+    except Exception as e:
+        task.callback_error = str(e)
+        job = _get_ci_job(db, task)
+        if job:
+            job.callback_sent = False
+            job.callback_error = str(e)
+            job.report_id = report.id if report else None
+            job.finished_at = task.finished_at
+            _append_ci_event(job, "callback_failed", f"回调开发平台失败: {e}", job.status)
+        db.commit()
+        print(f"[Callback] 任务 {task.id} 回调失败: {e}")
+
+
+def _notify_webhook(batch_id: str, pkg_results: List[Dict], overall_status: str, report_id: int):
     """批量测试完成后，推送结果到开发后台"""
     if not CI_WEBHOOK_URL:
         return
@@ -645,20 +767,12 @@ def _notify_webhook(batch_id: str, pkg_results: List[Dict], overall_status: str,
             {"name": r["package_name"], "filename": r["filename"], "reason": r["error"] or "测试失败"}
             for r in failed_pkgs
         ],
-        "report_url": f"/api/reports/{batch_id}" if report_path else None,
+        "report_id": report_id,
+        "report_url": f"/api/reports/{report_id}" if report_id else None,
     }
 
     try:
-        import urllib.request
-        import urllib.error
-
-        req = urllib.request.Request(
-            CI_WEBHOOK_URL,
-            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=CI_WEBHOOK_TIMEOUT) as resp:
-            print(f"[Webhook] 推送成功: {resp.status}")
+        status_code = _post_json(CI_WEBHOOK_URL, payload)
+        print(f"[Webhook] 推送成功: {status_code}")
     except Exception as e:
         print(f"[Webhook] 推送失败: {e}")
