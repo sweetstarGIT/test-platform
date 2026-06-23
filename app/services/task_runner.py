@@ -707,21 +707,14 @@ def _notify_task_callback(task_id: int, db: Session):
     report = db.query(Report).filter(Report.task_id == task.id).order_by(Report.created_at.desc()).first()
 
     passed = task.status == "done"
+    test_status = "passed" if passed else "failed"
+    test_log = task.error or ""
+    if not test_log and not passed:
+        test_log = "自动测试失败"
     payload = {
-        "external_task_id": task.external_task_id,
-        "task_id": task.id,
-        "package_id": task.package_id,
-        "package_name": pkg.package_name if pkg else "",
-        "filename": pkg.filename if pkg else "",
-        "artifact_url": task.artifact_url,
-        "status": "success" if passed else "failed",
-        "platform_status": task.status,
-        "passed": passed,
-        "error": task.error or "",
-        "report_id": report.id if report else None,
-        "report_url": f"/api/reports/{report.id}" if report else None,
-        "started_at": task.started_at.isoformat() if task.started_at else "",
-        "finished_at": task.finished_at.isoformat() if task.finished_at else "",
+        "externalTaskId": task.external_task_id,
+        "testStatus": test_status,
+        "testLog": test_log,
     }
 
     try:

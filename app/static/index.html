@@ -470,6 +470,10 @@ tbody tr:hover{background:rgba(255,255,255,0.03)}
               <div class="text-xs text-rose-300 mt-1 truncate" x-show="job.callback_error" x-text="job.callback_error"></div>
             </div>
             <div class="text-right space-x-2 whitespace-nowrap">
+              <button x-show="!ciJobBusy(job)" @click="retryCiJob(job.id)" class="text-violet-300 hover:text-violet-200 text-xs">重试</button>
+              <button x-show="!ciJobBusy(job)" @click="downloadCiJob(job.id)" class="text-cyan-300 hover:text-cyan-200 text-xs">手动下载</button>
+              <button x-show="!ciJobBusy(job) && job.package_id" @click="runCiJobScript(job.id)" class="text-emerald-300 hover:text-emerald-200 text-xs">跑脚本</button>
+              <button x-show="!ciJobBusy(job)" @click="rerunCiJob(job.id)" class="text-amber-300 hover:text-amber-200 text-xs">全流程重跑</button>
               <button x-show="job.task_id" @click="viewTaskLogs({id:job.task_id,status:job.task_platform_status||job.status})" class="text-cyan-300 hover:text-cyan-200 text-xs">日志</button>
               <a x-show="job.report_url" :href="job.report_url" target="_blank" class="text-indigo-300 hover:text-indigo-200 text-xs">报告</a>
               <button @click="deleteCiJob(job.id)" class="text-rose-300 hover:text-rose-200 text-xs">删除</button>
@@ -743,6 +747,10 @@ function app() {
 
     async deleteReport(id){if(!confirm('确定删除？'))return;await this.api('/api/reports/'+id,{method:'DELETE'});await this.loadReports()},
     async deleteAllReports(){if(!confirm('确定删除全部报告？'))return;await this.api('/api/reports/all/clear',{method:'DELETE'});await this.loadReports()},
+    async retryCiJob(id){if(!confirm('确定重试该CI任务？有已下载测试包时会直接跑脚本，否则会重新下载。'))return;const r=await this.api('/api/ci/jobs/'+id+'/retry',{method:'POST'});if(r&&r.message)console.log(r.message,r);await Promise.all([this.loadCiJobs(),this.loadPackages(),this.loadTasks()])},
+    async downloadCiJob(id){if(!confirm('确定手动下载并入库该CI构建产物？'))return;const r=await this.api('/api/ci/jobs/'+id+'/download',{method:'POST'});if(r&&r.message)console.log(r.message,r);await Promise.all([this.loadCiJobs(),this.loadPackages()])},
+    async runCiJobScript(id){if(!confirm('确定使用已下载测试包手动跑脚本？'))return;const r=await this.api('/api/ci/jobs/'+id+'/run-script',{method:'POST'});if(r&&r.message)console.log(r.message,r);await Promise.all([this.loadCiJobs(),this.loadTasks()])},
+    async rerunCiJob(id){if(!confirm('确定重新下载并运行完整CI流程？'))return;const r=await this.api('/api/ci/jobs/'+id+'/rerun',{method:'POST'});if(r&&r.message)console.log(r.message,r);await Promise.all([this.loadCiJobs(),this.loadPackages(),this.loadTasks()])},
     async deleteCiJob(id){if(!confirm('确定删除该CI流转记录？'))return;await this.api('/api/ci/jobs/'+id,{method:'DELETE'});await this.loadCiJobs()},
     async deleteAllCiJobs(){if(!confirm('确定清空全部CI流转记录？'))return;await this.api('/api/ci/jobs',{method:'DELETE'});await this.loadCiJobs()},
 
@@ -780,6 +788,7 @@ function app() {
     async disconnectWifi(){const r=await this.api('/api/devices/disconnect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:this.wifiAddr})});this.wifiMsg=r.message;this.wifiOk=r.success;await this.loadDevices()},
 
     ciStepDone(job,key){return (job.events||[]).some(e=>e.step===key)||job.current_step===key},
+    ciJobBusy(job){return ['received','downloading','extracting','packaging','assigning','queued','running'].includes(job.status)},
     statusClass(s){return{'done':'bg-emerald-500/15 text-emerald-200 border border-emerald-500/20','success':'bg-emerald-500/15 text-emerald-200 border border-emerald-500/20','running':'bg-indigo-500/15 text-indigo-200 border border-indigo-500/20','pending':'bg-amber-500/15 text-amber-200 border border-amber-500/20','received':'bg-indigo-500/15 text-indigo-200 border border-indigo-500/20','downloading':'bg-indigo-500/15 text-indigo-200 border border-indigo-500/20','extracting':'bg-violet-500/15 text-violet-200 border border-violet-500/20','packaging':'bg-violet-500/15 text-violet-200 border border-violet-500/20','assigning':'bg-amber-500/15 text-amber-200 border border-amber-500/20','queued':'bg-amber-500/15 text-amber-200 border border-amber-500/20','failed':'bg-rose-500/15 text-rose-200 border border-rose-500/20','cancelled':'bg-white/5 text-gray-400 border border-white/10','partial':'bg-orange-500/15 text-orange-200 border border-orange-500/20'}[s]||'bg-white/5 text-gray-400 border border-white/10'},
     formatSize(b){if(!b)return'0B';const k=1024,s=['B','KB','MB','GB'],i=Math.floor(Math.log(b)/Math.log(k));return(b/Math.pow(k,i)).toFixed(1)+s[i]}
   }

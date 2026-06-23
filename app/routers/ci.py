@@ -76,11 +76,43 @@ def _resolve_filename(url: str, req: PushTaskRequest) -> tuple[str, str]:
     return filename, file_type
 
 
+def _normalize_download_url(url: str) -> str:
+    """Encode non-ASCII path/query characters before urllib sends the request."""
+    parsed = urllib.parse.urlsplit(url.strip())
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError("下载地址必须是 HTTP/HTTPS URL")
+
+    hostname = parsed.hostname.encode("idna").decode("ascii")
+    if ":" in hostname and not hostname.startswith("["):
+        hostname = f"[{hostname}]"
+
+    netloc = hostname
+    if parsed.port:
+        netloc = f"{netloc}:{parsed.port}"
+    if parsed.username:
+        userinfo = urllib.parse.quote(urllib.parse.unquote(parsed.username), safe="")
+        if parsed.password:
+            password = urllib.parse.quote(urllib.parse.unquote(parsed.password), safe="")
+            userinfo = f"{userinfo}:{password}"
+        netloc = f"{userinfo}@{netloc}"
+
+    path = urllib.parse.quote(
+        urllib.parse.unquote(parsed.path),
+        safe="/:@!$&'()*+,;=",
+    )
+    query = urllib.parse.quote(
+        urllib.parse.unquote(parsed.query),
+        safe="/?:@!$'()*+,;=&",
+    )
+    return urllib.parse.urlunsplit((parsed.scheme, netloc, path, query, parsed.fragment))
+
+
 def _download_artifact(url: str, filename: str) -> tuple[str, int]:
     safe_name = f"{int(time.time())}_{filename}"
     file_path = os.path.join(UPLOAD_DIR, safe_name)
     try:
-        with urllib.request.urlopen(url, timeout=120) as resp:
+        download_url = _normalize_download_url(url)
+        with urllib.request.urlopen(download_url, timeout=120) as resp:
             with open(file_path, "wb") as f:
                 while True:
                     chunk = resp.read(1024 * 1024)
@@ -144,6 +176,174 @@ def _prepare_package_file(file_path: str, filename: str, file_type: str, externa
             os.remove(file_path)
         if os.path.isdir(extract_dir):
             shutil.rmtree(extract_dir, ignore_errors=True)
+
+
+def _build_request_from_job(job: CiJob) -> PushTaskRequest:
+    return PushTaskRequest(
+        external_task_id=job.external_task_id,
+        package_name=job.package_name or "",
+        artifact_url=job.artifact_url,
+        filename=job.artifact_filename or "",
+        file_type=job.artifact_type or "",
+        task_status=job.task_status or "manual_rerun",
+        callback_url=job.callback_url or "",
+        device_serial=job.device_serial or None,
+        new_package=True,
+    )
+
+
+def _is_running_job(job: CiJob) -> bool:
+    return job.status in ("received", "downloading", "extracting", "packaging", "assigning", "queued", "running")
+
+
+def _remove_job_package(db: Session, job: CiJob):
+    if not job.package_id:
+        return
+    pkg = db.query(Package).filter(Package.id == job.package_id).first()
+    if not pkg:
+        job.package_id = None
+        return
+    referenced_tasks = db.query(Task).filter(Task.package_id == pkg.id).count()
+    if referenced_tasks:
+        job.package_id = None
+        return
+    if pkg.source == "ci" and pkg.file_path and os.path.exists(pkg.file_path):
+        os.remove(pkg.file_path)
+    db.delete(pkg)
+    job.package_id = None
+
+
+def _prepare_ci_package(db: Session, job: CiJob, req: PushTaskRequest, reset: bool = False) -> Package:
+    if reset:
+        _remove_job_package(db, job)
+        job.error = ""
+        job.callback_error = ""
+        job.callback_sent = False
+        job.task_id = None
+        job.report_id = None
+        job.finished_at = None
+        job.updated_at = datetime.now()
+        db.commit()
+
+    try:
+        filename, file_type = _resolve_filename(req.artifact_url, req)
+        job.artifact_filename = filename
+        job.artifact_type = file_type
+        _add_job_event(db, job, "resolved", f"识别构建产物: {filename} ({file_type})", "downloading")
+
+        artifact_path, _ = _download_artifact(req.artifact_url, filename)
+        _add_job_event(db, job, "downloaded", "构建产物下载完成", "extracting" if file_type == "zip" else "packaging")
+
+        file_path, filename, file_type, file_size = _prepare_package_file(
+            artifact_path,
+            filename,
+            file_type,
+            req.external_task_id,
+        )
+        job.artifact_filename = filename
+        job.artifact_type = file_type
+        _add_job_event(db, job, "package_found", f"找到测试包: {filename} ({file_type})", "packaging")
+    except HTTPException as e:
+        _fail_job(db, job, "prepare_failed", str(e.detail))
+        raise
+    except Exception as e:
+        _fail_job(db, job, "prepare_failed", str(e))
+        raise HTTPException(400, f"准备构建产物失败: {e}")
+
+    parsed_package_name = req.package_name or parse_package_name(file_path) or os.path.splitext(filename)[0]
+    pkg = Package(
+        filename=filename,
+        package_name=parsed_package_name,
+        file_type=file_type,
+        file_size=file_size,
+        file_path=file_path,
+        source="ci",
+    )
+    db.add(pkg)
+    db.commit()
+    db.refresh(pkg)
+    job.package_id = pkg.id
+    job.package_name = pkg.package_name
+    job.error = ""
+    _add_job_event(db, job, "package_saved", f"测试包已入库: package_id={pkg.id}", "package_ready")
+    return pkg
+
+
+def _create_ci_task(db: Session, job: CiJob, req: PushTaskRequest) -> Task:
+    if not job.package_id:
+        raise HTTPException(400, "还没有可用测试包，请先手动下载")
+
+    pkg = db.query(Package).filter(Package.id == job.package_id).first()
+    if not pkg:
+        job.package_id = None
+        db.commit()
+        raise HTTPException(400, "关联测试包不存在，请重新手动下载")
+
+    device_serial = req.device_serial or auto_assign_device()
+    if not device_serial:
+        _fail_job(db, job, "assign_failed", "无可用设备，未创建测试任务")
+        raise HTTPException(400, "无可用设备，未创建测试任务")
+    job.device_serial = device_serial
+    _add_job_event(db, job, "device_assigned", f"已分配设备: {device_serial}", "queued")
+
+    task = Task(
+        package_id=pkg.id,
+        device_serial=device_serial,
+        status="pending",
+        new_package=True,
+        external_task_id=req.external_task_id,
+        external_status=req.task_status,
+        artifact_url=req.artifact_url,
+        callback_url=req.callback_url,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+    job.task_id = task.id
+    job.report_id = None
+    job.callback_sent = False
+    job.callback_error = ""
+    job.finished_at = None
+    _add_job_event(db, job, "task_created", f"测试任务已创建: task_id={task.id}", "queued")
+
+    task_runner.submit_task(task.id)
+    _add_job_event(db, job, "submitted", "测试任务已提交执行队列", "queued")
+    return task
+
+
+def _run_ci_job(db: Session, job: CiJob, req: PushTaskRequest, manual: bool = False) -> dict:
+    if manual:
+        job.status = "received"
+        job.current_step = "manual_rerun"
+        job.error = ""
+        job.callback_error = ""
+        job.callback_sent = False
+        job.task_id = None
+        job.report_id = None
+        job.finished_at = None
+        job.updated_at = datetime.now()
+        db.commit()
+        _add_job_event(db, job, "manual_rerun", "手动触发重新运行", "received")
+
+    pkg = _prepare_ci_package(db, job, req, reset=manual)
+    task = _create_ci_task(db, job, req)
+
+    return {
+        "message": "任务已创建",
+        "ci_job_id": job.id,
+        "external_task_id": req.external_task_id,
+        "task_id": task.id,
+        "package_id": pkg.id,
+        "package_name": pkg.package_name,
+        "filename": pkg.filename,
+        "device_serial": task.device_serial,
+        "status": job.status,
+        "task_status": task.status,
+        "current_step": job.current_step,
+        "new_package": task.new_package,
+        "duplicate": False,
+        "manual": manual,
+    }
 
 
 @router.post("/tasks")
@@ -212,95 +412,7 @@ def push_task(
     db.commit()
     db.refresh(job)
     _add_job_event(db, job, "received", "收到开发平台推送任务", "received")
-
-    try:
-        filename, file_type = _resolve_filename(req.artifact_url, req)
-        job.artifact_filename = filename
-        job.artifact_type = file_type
-        _add_job_event(db, job, "resolved", f"识别构建产物: {filename} ({file_type})", "downloading")
-
-        artifact_path, _ = _download_artifact(req.artifact_url, filename)
-        _add_job_event(db, job, "downloaded", "构建产物下载完成", "extracting" if file_type == "zip" else "packaging")
-
-        file_path, filename, file_type, file_size = _prepare_package_file(
-            artifact_path,
-            filename,
-            file_type,
-            req.external_task_id,
-        )
-        job.artifact_filename = filename
-        job.artifact_type = file_type
-        _add_job_event(db, job, "package_found", f"找到测试包: {filename} ({file_type})", "packaging")
-    except HTTPException as e:
-        _fail_job(db, job, "prepare_failed", str(e.detail))
-        raise
-    except Exception as e:
-        _fail_job(db, job, "prepare_failed", str(e))
-        raise HTTPException(400, f"准备构建产物失败: {e}")
-
-    parsed_package_name = req.package_name or parse_package_name(file_path) or os.path.splitext(filename)[0]
-    pkg = Package(
-        filename=filename,
-        package_name=parsed_package_name,
-        file_type=file_type,
-        file_size=file_size,
-        file_path=file_path,
-        source="ci",
-    )
-    db.add(pkg)
-    db.commit()
-    db.refresh(pkg)
-    job.package_id = pkg.id
-    job.package_name = pkg.package_name
-    _add_job_event(db, job, "package_saved", f"测试包已入库: package_id={pkg.id}", "assigning")
-
-    device_serial = req.device_serial or auto_assign_device()
-    if not device_serial:
-        pkg_id = pkg.id
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        db.delete(pkg)
-        job.package_id = None
-        db.commit()
-        _fail_job(db, job, "assign_failed", "无可用设备，已取消任务创建")
-        raise HTTPException(400, f"无可用设备，已取消任务创建 package_id={pkg_id}")
-    job.device_serial = device_serial
-    _add_job_event(db, job, "device_assigned", f"已分配设备: {device_serial}", "queued")
-
-    task = Task(
-        package_id=pkg.id,
-        device_serial=device_serial,
-        status="pending",
-        new_package=True,
-        external_task_id=req.external_task_id,
-        external_status=req.task_status,
-        artifact_url=req.artifact_url,
-        callback_url=req.callback_url,
-    )
-    db.add(task)
-    db.commit()
-    db.refresh(task)
-    job.task_id = task.id
-    _add_job_event(db, job, "task_created", f"测试任务已创建: task_id={task.id}", "queued")
-
-    task_runner.submit_task(task.id)
-    _add_job_event(db, job, "submitted", "测试任务已提交执行队列", "queued")
-
-    return {
-        "message": "任务已创建",
-        "ci_job_id": job.id,
-        "external_task_id": req.external_task_id,
-        "task_id": task.id,
-        "package_id": pkg.id,
-        "package_name": pkg.package_name,
-        "filename": pkg.filename,
-        "device_serial": device_serial,
-        "status": job.status,
-        "task_status": task.status,
-        "current_step": job.current_step,
-        "new_package": task.new_package,
-        "duplicate": False,
-    }
+    return _run_ci_job(db, job, req)
 
 
 def _serialize_ci_job(job: CiJob, db: Session) -> dict:
@@ -353,6 +465,116 @@ def get_ci_job(job_id: int, db: Session = Depends(get_db)):
     if not job:
         raise HTTPException(404, "CI流转任务不存在")
     return _serialize_ci_job(job, db)
+
+
+@router.post("/jobs/{job_id}/rerun")
+def rerun_ci_job(job_id: int, db: Session = Depends(get_db)):
+    job = db.query(CiJob).filter(CiJob.id == job_id).first()
+    if not job:
+        raise HTTPException(404, "CI流转任务不存在")
+    if _is_running_job(job):
+        raise HTTPException(400, "CI流转任务仍在运行中，不能重复手动运行")
+    if not job.artifact_url:
+        raise HTTPException(400, "缺少构建产物下载地址，不能手动运行")
+
+    req = _build_request_from_job(job)
+    return _run_ci_job(db, job, req, manual=True)
+
+
+@router.post("/jobs/{job_id}/download")
+def download_ci_job_artifact(job_id: int, db: Session = Depends(get_db)):
+    job = db.query(CiJob).filter(CiJob.id == job_id).first()
+    if not job:
+        raise HTTPException(404, "CI流转任务不存在")
+    if _is_running_job(job):
+        raise HTTPException(400, "CI流转任务仍在运行中，不能手动下载")
+    if not job.artifact_url:
+        raise HTTPException(400, "缺少构建产物下载地址，不能手动下载")
+
+    req = _build_request_from_job(job)
+    _add_job_event(db, job, "manual_download", "手动触发下载构建产物", "downloading")
+    pkg = _prepare_ci_package(db, job, req, reset=True)
+    return {
+        "message": "构建产物已下载并入库",
+        "ci_job_id": job.id,
+        "package_id": pkg.id,
+        "package_name": pkg.package_name,
+        "filename": pkg.filename,
+        "status": job.status,
+        "current_step": job.current_step,
+    }
+
+
+@router.post("/jobs/{job_id}/run-script")
+def run_ci_job_script(job_id: int, db: Session = Depends(get_db)):
+    job = db.query(CiJob).filter(CiJob.id == job_id).first()
+    if not job:
+        raise HTTPException(404, "CI流转任务不存在")
+    if _is_running_job(job):
+        raise HTTPException(400, "CI流转任务仍在运行中，不能重复跑脚本")
+    if not job.package_id:
+        raise HTTPException(400, "还没有可用测试包，请先手动下载")
+
+    req = _build_request_from_job(job)
+    job.error = ""
+    job.callback_error = ""
+    job.callback_sent = False
+    job.task_id = None
+    job.report_id = None
+    job.finished_at = None
+    _add_job_event(db, job, "manual_run_script", "手动触发跑脚本", "assigning")
+    task = _create_ci_task(db, job, req)
+    pkg = db.query(Package).filter(Package.id == job.package_id).first()
+    return {
+        "message": "测试脚本已提交执行",
+        "ci_job_id": job.id,
+        "task_id": task.id,
+        "package_id": job.package_id,
+        "package_name": pkg.package_name if pkg else job.package_name,
+        "device_serial": task.device_serial,
+        "status": job.status,
+        "task_status": task.status,
+        "current_step": job.current_step,
+    }
+
+
+@router.post("/jobs/{job_id}/retry")
+def retry_ci_job(job_id: int, db: Session = Depends(get_db)):
+    job = db.query(CiJob).filter(CiJob.id == job_id).first()
+    if not job:
+        raise HTTPException(404, "CI流转任务不存在")
+    if _is_running_job(job):
+        raise HTTPException(400, "CI流转任务仍在运行中，不能重试")
+    if not job.artifact_url:
+        raise HTTPException(400, "缺少构建产物下载地址，不能重试")
+
+    req = _build_request_from_job(job)
+    if job.package_id:
+        job.error = ""
+        job.callback_error = ""
+        job.callback_sent = False
+        job.task_id = None
+        job.report_id = None
+        job.finished_at = None
+        _add_job_event(db, job, "retry", "重试：复用已下载测试包并重新跑脚本", "assigning")
+        task = _create_ci_task(db, job, req)
+        return {
+            "message": "已复用测试包并重新提交脚本",
+            "ci_job_id": job.id,
+            "task_id": task.id,
+            "package_id": job.package_id,
+            "device_serial": task.device_serial,
+            "status": job.status,
+            "task_status": task.status,
+            "current_step": job.current_step,
+            "mode": "run_script",
+        }
+
+    _add_job_event(db, job, "retry", "重试：重新下载构建产物并运行", "received")
+    result = _run_ci_job(db, job, req, manual=True)
+    result["message"] = "已重新下载并提交脚本"
+    result["mode"] = "full"
+    return result
 
 
 @router.delete("/jobs/{job_id}")
