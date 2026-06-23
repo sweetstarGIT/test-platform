@@ -234,7 +234,7 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 #### RPK
 
-1. 推送 RPK 到设备 `/sdcard/`。
+1. 推送 RPK 到设备 `/sdcard/快应用/`。
 2. 创建临时包列表 `_platform_task_{task_id}.txt`。
 3. 用当前 Python 解释器启动 `C:\sweetstar\UI-Automation\main.py`。
 4. 参数包含 `--packages`、`--device`、`--report`。
@@ -372,4 +372,3 @@ sqlite3 test_platform.db "pragma table_info(tasks);"
 3. 补齐虚拟环境依赖，保证 `.venv\Scripts\python.exe -c "from app.main import app"` 可用。
 4. 决定 Agent 是否只做设备发现，还是要真正执行远端任务；如果要执行，需要接入 `task_log` 和 `task_result`。
 5. 给关键服务补最小测试，尤其是 CI 结果汇总、批量报告、任务取消、包名解析。
-

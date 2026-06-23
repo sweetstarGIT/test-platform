@@ -2,6 +2,7 @@
 import os
 import json
 import shutil
+import subprocess
 import time
 import urllib.parse
 import urllib.request
@@ -14,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Task, Package, Report, CiJob
-from app.config import API_KEY, UPLOAD_DIR
+from app.config import API_KEY, UPLOAD_DIR, DEVICE_PKG_DIR
 from app.services.load_balancer import auto_assign_device
 from app.services.package_service import get_file_type, parse_package_name
 from app.services import task_runner
@@ -269,6 +270,38 @@ def _prepare_ci_package(db: Session, job: CiJob, req: PushTaskRequest, reset: bo
     return pkg
 
 
+def _push_package_to_device(serial: str, pkg: Package) -> str:
+    subprocess.run(
+        ["adb", "-s", serial, "shell", "mkdir", "-p", DEVICE_PKG_DIR],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10
+    )
+    dest = f"{DEVICE_PKG_DIR}/{pkg.filename}"
+    proc = subprocess.run(
+        ["adb", "-s", serial, "push", pkg.file_path, dest],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120
+    )
+    if proc.returncode != 0:
+        raise RuntimeError((proc.stderr or proc.stdout or "adb push failed").strip())
+    return dest
+
+
+def _assign_and_push_ci_package(db: Session, job: CiJob, pkg: Package, preferred_device_serial: str | None = None) -> str:
+    device_serial = preferred_device_serial or job.device_serial or auto_assign_device()
+    if not device_serial:
+        _add_job_event(db, job, "push_skipped", "测试包已入库，但当前无可用设备，未推送到手机", "package_ready")
+        return ""
+
+    job.device_serial = device_serial
+    try:
+        dest = _push_package_to_device(device_serial, pkg)
+        _add_job_event(db, job, "package_pushed", f"测试包已推送到设备: {device_serial}:{dest}", "package_ready")
+        return dest
+    except Exception as e:
+        job.error = f"推送到设备失败: {e}"
+        _add_job_event(db, job, "push_failed", job.error, "failed")
+        raise HTTPException(400, job.error)
+
+
 def _create_ci_task(db: Session, job: CiJob, req: PushTaskRequest) -> Task:
     if not job.package_id:
         raise HTTPException(400, "还没有可用测试包，请先手动下载")
@@ -279,7 +312,7 @@ def _create_ci_task(db: Session, job: CiJob, req: PushTaskRequest) -> Task:
         db.commit()
         raise HTTPException(400, "关联测试包不存在，请重新手动下载")
 
-    device_serial = req.device_serial or auto_assign_device()
+    device_serial = req.device_serial or job.device_serial or auto_assign_device()
     if not device_serial:
         _fail_job(db, job, "assign_failed", "无可用设备，未创建测试任务")
         raise HTTPException(400, "无可用设备，未创建测试任务")
@@ -326,6 +359,7 @@ def _run_ci_job(db: Session, job: CiJob, req: PushTaskRequest, manual: bool = Fa
         _add_job_event(db, job, "manual_rerun", "手动触发重新运行", "received")
 
     pkg = _prepare_ci_package(db, job, req, reset=manual)
+    _assign_and_push_ci_package(db, job, pkg, req.device_serial)
     task = _create_ci_task(db, job, req)
 
     return {
@@ -494,12 +528,15 @@ def download_ci_job_artifact(job_id: int, db: Session = Depends(get_db)):
     req = _build_request_from_job(job)
     _add_job_event(db, job, "manual_download", "手动触发下载构建产物", "downloading")
     pkg = _prepare_ci_package(db, job, req, reset=True)
+    pushed_dest = _assign_and_push_ci_package(db, job, pkg, req.device_serial)
     return {
-        "message": "构建产物已下载并入库",
+        "message": "构建产物已下载、入库并推送到设备" if pushed_dest else "构建产物已下载并入库，暂无可用设备可推送",
         "ci_job_id": job.id,
         "package_id": pkg.id,
         "package_name": pkg.package_name,
         "filename": pkg.filename,
+        "device_serial": job.device_serial,
+        "pushed_dest": pushed_dest,
         "status": job.status,
         "current_step": job.current_step,
     }

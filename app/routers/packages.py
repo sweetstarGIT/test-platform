@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db, SessionLocal
 from app.models import Package
-from app.config import UPLOAD_DIR, API_KEY, AUTO_PUSH_TO_DEVICE
+from app.config import UPLOAD_DIR, API_KEY, AUTO_PUSH_TO_DEVICE, DEVICE_PKG_DIR
 from app.services.package_service import parse_package_name, get_file_type
 from app.services.device_service import list_devices
 
@@ -36,9 +36,6 @@ def _update_package_name_async(pkg_id: int, file_path: str):
                 db.close()
     except Exception as e:
         print(f"[PackageParser] 解析失败: {pkg_id}, error: {e}")
-
-# 手机端存放包的目录
-DEVICE_PKG_DIR = "/sdcard/快应用"
 
 router = APIRouter()
 

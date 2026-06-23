@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models import Task, Package, Report, CiJob
 from app.services import device_service
-from app.config import REPORT_DIR, TESTCASE_PROJECT_DIR, CI_WEBHOOK_URL, CI_WEBHOOK_TIMEOUT
+from app.config import REPORT_DIR, TESTCASE_PROJECT_DIR, CI_WEBHOOK_URL, CI_WEBHOOK_TIMEOUT, DEVICE_PKG_DIR
 
 # ==================== 设备级并行执行器 ====================
 # 每个设备一个独立的单线程执行器，保证同一设备串行，不同设备并行
@@ -491,10 +491,17 @@ def _push_rpk_to_device(serial: str, pkg: Package, task_id: int):
     """推送 RPK 文件到设备"""
     try:
         subprocess.run(
-            ["adb", "-s", serial, "push", pkg.file_path, "/sdcard/"],
+            ["adb", "-s", serial, "shell", "mkdir", "-p", DEVICE_PKG_DIR],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10
+        )
+        dest = f"{DEVICE_PKG_DIR}/{pkg.filename}"
+        proc = subprocess.run(
+            ["adb", "-s", serial, "push", pkg.file_path, dest],
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60
         )
-        append_log(task_id, f"已推送 {pkg.filename} 到设备 /sdcard/")
+        if proc.returncode != 0:
+            raise RuntimeError((proc.stderr or proc.stdout or "adb push failed").strip())
+        append_log(task_id, f"已推送 {pkg.filename} 到设备 {dest}")
     except Exception as e:
         append_log(task_id, f"RPK 推送失败: {e}")
 

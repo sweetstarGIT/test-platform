@@ -23,6 +23,9 @@ if os.path.isdir(TESTCASE_PROJECT_DIR) and TESTCASE_PROJECT_DIR not in sys.path:
 # 上传后是否自动推送到设备（默认关闭，避免上传大文件时阻塞）
 AUTO_PUSH_TO_DEVICE = os.getenv("AUTO_PUSH_TO_DEVICE", "false").lower() == "true"
 
+# 手机端快应用包目录
+DEVICE_PKG_DIR = os.getenv("DEVICE_PKG_DIR", "/sdcard/快应用")
+
 # CI Webhook：批量测试完成后自动推送结果到开发后台
 CI_WEBHOOK_URL = os.getenv("CI_WEBHOOK_URL", "")
 CI_WEBHOOK_TIMEOUT = int(os.getenv("CI_WEBHOOK_TIMEOUT", "10"))
