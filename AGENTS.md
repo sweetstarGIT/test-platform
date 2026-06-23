@@ -292,13 +292,11 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 当前新增方向:
 
 - `app/routers/ci.py` 提供批量结果查询。
-- `app/config.py` 提供 `CI_WEBHOOK_URL` 和 `CI_WEBHOOK_TIMEOUT`。
+- `app/config.py` 提供 `PUBLIC_BASE_URL`、`CI_WEBHOOK_URL` 和 `CI_WEBHOOK_TIMEOUT`。
 - 批量任务完成后，`task_runner._check_batch_complete()` 生成汇总报告并调用 `_notify_webhook()`。
-
-需要特别核对的点:
-
-- `_notify_webhook()` 里的 `report_url` 当前是 `f"/api/reports/{batch_id}"`，但 `reports.py` 的查看接口实际是按 `report_id` 查询，不是按 `batch_id` 查询。后续做 CI 打通时应修正为真实报告 ID 或新增按 batch 查看报告的接口。
-- `app/routers/ci.py` import 了 `desc`、`Report` 但当前未使用，可清理。
+- 单任务 CI 回调 payload 包含 `externalTaskId`、`testStatus`、`testLog`、`reportId`、`reportUrl`。
+- `reportUrl` 使用 `PUBLIC_BASE_URL + /api/reports/{report_id}`，默认公网地址是 `https://test-platform.sweetstar.cloud`。
+- 批量 Webhook 的 `report_url` 也返回真实 `report_id` 对应的完整报告 URL。
 
 ---
 

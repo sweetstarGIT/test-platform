@@ -20,7 +20,7 @@ from app.database import SessionLocal
 from app.models import Task, Package, Report, CiJob
 from app.services import device_service
 from app.services.result_details import apply_failure_details_to_modules, summarize_failure_reason
-from app.config import REPORT_DIR, TESTCASE_PROJECT_DIR, CI_WEBHOOK_URL, CI_WEBHOOK_TIMEOUT, DEVICE_PKG_DIR
+from app.config import REPORT_DIR, TESTCASE_PROJECT_DIR, CI_WEBHOOK_URL, CI_WEBHOOK_TIMEOUT, DEVICE_PKG_DIR, PUBLIC_BASE_URL
 
 # ==================== 设备级并行执行器 ====================
 # 每个设备一个独立的单线程执行器，保证同一设备串行，不同设备并行
@@ -718,6 +718,12 @@ def _post_json(url: str, payload: Dict, timeout: int = CI_WEBHOOK_TIMEOUT) -> in
         return resp.status
 
 
+def _build_report_url(report_id: int | None) -> str:
+    if not report_id:
+        return ""
+    return f"{PUBLIC_BASE_URL}/api/reports/{report_id}"
+
+
 def _notify_task_callback(task_id: int, db: Session):
     """单个 CI 推送任务完成后，按任务 callback_url 回调开发平台。"""
     task = db.query(Task).filter(Task.id == task_id).first()
@@ -746,6 +752,8 @@ def _notify_task_callback(task_id: int, db: Session):
         "externalTaskId": task.external_task_id,
         "testStatus": test_status,
         "testLog": test_log,
+        "reportId": report.id if report else None,
+        "reportUrl": _build_report_url(report.id if report else None),
     }
 
     try:
@@ -792,7 +800,7 @@ def _notify_webhook(batch_id: str, pkg_results: List[Dict], overall_status: str,
             for r in failed_pkgs
         ],
         "report_id": report_id,
-        "report_url": f"/api/reports/{report_id}" if report_id else None,
+        "report_url": _build_report_url(report_id) or None,
     }
 
     try:

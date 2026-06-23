@@ -15,13 +15,19 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Task, Package, Report, CiJob
-from app.config import API_KEY, UPLOAD_DIR, DEVICE_PKG_DIR
+from app.config import API_KEY, UPLOAD_DIR, DEVICE_PKG_DIR, PUBLIC_BASE_URL
 from app.services.load_balancer import auto_assign_device
 from app.services.package_service import get_file_type, parse_package_name
 from app.services.device_service import list_devices
 from app.services import task_runner
 
 router = APIRouter()
+
+
+def _build_report_url(report_id: int | None) -> str:
+    if not report_id:
+        return ""
+    return f"{PUBLIC_BASE_URL}/api/reports/{report_id}"
 
 
 class PushTaskRequest(BaseModel):
@@ -508,7 +514,7 @@ def _serialize_ci_job(job: CiJob, db: Session) -> dict:
         "task_id": job.task_id,
         "task_platform_status": task.status if task else "",
         "report_id": report_id,
-        "report_url": f"/api/reports/{report_id}" if report_id else "",
+        "report_url": _build_report_url(report_id),
         "callback_url": job.callback_url,
         "callback_sent": job.callback_sent,
         "callback_error": job.callback_error,

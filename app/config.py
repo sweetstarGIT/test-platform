@@ -26,6 +26,9 @@ AUTO_PUSH_TO_DEVICE = os.getenv("AUTO_PUSH_TO_DEVICE", "false").lower() == "true
 # 手机端快应用包目录
 DEVICE_PKG_DIR = os.getenv("DEVICE_PKG_DIR", "/sdcard/快应用")
 
+# 测试平台公网访问地址，用于回调给开发平台的报告跳转链接
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "https://test-platform.sweetstar.cloud").rstrip("/")
+
 # CI Webhook：批量测试完成后自动推送结果到开发后台
 CI_WEBHOOK_URL = os.getenv("CI_WEBHOOK_URL", "")
 CI_WEBHOOK_TIMEOUT = int(os.getenv("CI_WEBHOOK_TIMEOUT", "10"))
