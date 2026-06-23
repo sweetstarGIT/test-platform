@@ -18,6 +18,7 @@ from app.models import Task, Package, Report, CiJob
 from app.config import API_KEY, UPLOAD_DIR, DEVICE_PKG_DIR
 from app.services.load_balancer import auto_assign_device
 from app.services.package_service import get_file_type, parse_package_name
+from app.services.device_service import list_devices
 from app.services import task_runner
 
 router = APIRouter()
@@ -285,8 +286,23 @@ def _push_package_to_device(serial: str, pkg: Package) -> str:
     return dest
 
 
+def _online_device_serials() -> set[str]:
+    devices = list_devices()
+    return {d.get("serial") for d in devices if "error" not in d and d.get("status") == "device" and d.get("serial")}
+
+
+def _resolve_ci_device(job: CiJob, preferred_device_serial: str | None = None) -> str:
+    online_serials = _online_device_serials()
+    for serial in (preferred_device_serial, job.device_serial):
+        if serial and serial in online_serials:
+            return serial
+    if job.device_serial and job.device_serial not in online_serials:
+        job.device_serial = ""
+    return auto_assign_device()
+
+
 def _assign_and_push_ci_package(db: Session, job: CiJob, pkg: Package, preferred_device_serial: str | None = None) -> str:
-    device_serial = preferred_device_serial or job.device_serial or auto_assign_device()
+    device_serial = _resolve_ci_device(job, preferred_device_serial)
     if not device_serial:
         _add_job_event(db, job, "push_skipped", "测试包已入库，但当前无可用设备，未推送到手机", "package_ready")
         return ""
@@ -312,7 +328,7 @@ def _create_ci_task(db: Session, job: CiJob, req: PushTaskRequest) -> Task:
         db.commit()
         raise HTTPException(400, "关联测试包不存在，请重新手动下载")
 
-    device_serial = req.device_serial or job.device_serial or auto_assign_device()
+    device_serial = _resolve_ci_device(job, req.device_serial)
     if not device_serial:
         _fail_job(db, job, "assign_failed", "无可用设备，未创建测试任务")
         raise HTTPException(400, "无可用设备，未创建测试任务")
