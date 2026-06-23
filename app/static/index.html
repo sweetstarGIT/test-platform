@@ -370,23 +370,6 @@ tbody tr:hover{background:rgba(255,255,255,0.03)}
       <div x-show="tasks.length === 0" class="text-center text-gray-500 py-10">暂无任务</div>
     </div>
   </div>
-
-  <!-- 日志弹窗 -->
-  <div x-show="logModal" class="fixed inset-0 glass-modal flex items-center justify-center z-50" @click.self="closeLogModal()" x-transition>
-    <div class="glass-card w-[750px] max-h-[85vh] flex flex-col shadow-2xl" @click.stop>
-      <div class="flex justify-between items-center px-5 py-4 border-b border-white/10">
-        <div class="flex items-center gap-3">
-          <h3 class="font-semibold text-gray-100">任务日志 <span class="text-gray-500">#<span x-text="logTaskId"></span></span></h3>
-          <span x-show="logStreaming" class="badge bg-emerald-500/15 text-emerald-300 border border-emerald-500/20 animate-pulse">LIVE</span>
-        </div>
-        <button @click="closeLogModal()" class="text-gray-500 hover:text-gray-300 text-xl transition">&times;</button>
-      </div>
-      <div class="flex-1 overflow-y-auto bg-[#030408] text-emerald-400 font-mono text-xs leading-relaxed p-5" x-ref="logContainer">
-        <template x-for="(line,i) in logLines" :key="i"><div x-text="line" class="py-0.5 hover:bg-white/5 px-1 -mx-1 rounded"></div></template>
-        <div x-show="logLines.length===0" class="text-gray-600">等待日志...</div>
-      </div>
-    </div>
-  </div>
 </div>
 
 <!-- 测试报告 -->
@@ -607,6 +590,23 @@ tbody tr:hover{background:rgba(255,255,255,0.03)}
 <!-- 项目介绍 -->
 <div x-show="tab==='about'" x-cloak class="fixed inset-0 left-56 z-50">
   <iframe src="/static/projects-showcase.html" class="w-full h-full border-0"></iframe>
+</div>
+
+<!-- 全局日志弹窗：任务页和 CI 页共用，不能放在某个 tab 容器内 -->
+<div x-show="logModal" x-cloak class="fixed inset-0 glass-modal flex items-center justify-center z-[80]" @click.self="closeLogModal()" x-transition>
+  <div class="glass-card w-[750px] max-h-[85vh] flex flex-col shadow-2xl" @click.stop>
+    <div class="flex justify-between items-center px-5 py-4 border-b border-white/10">
+      <div class="flex items-center gap-3">
+        <h3 class="font-semibold text-gray-100">任务日志 <span class="text-gray-500">#<span x-text="logTaskId"></span></span></h3>
+        <span x-show="logStreaming" class="badge bg-emerald-500/15 text-emerald-300 border border-emerald-500/20 animate-pulse">LIVE</span>
+      </div>
+      <button @click="closeLogModal()" class="text-gray-500 hover:text-gray-300 text-xl transition">&times;</button>
+    </div>
+    <div class="flex-1 overflow-y-auto bg-[#030408] text-emerald-400 font-mono text-xs leading-relaxed p-5" x-ref="logContainer">
+      <template x-for="(line,i) in logLines" :key="i"><div x-text="line" class="py-0.5 hover:bg-white/5 px-1 -mx-1 rounded"></div></template>
+      <div x-show="logLines.length===0" class="text-gray-600">等待日志...</div>
+    </div>
+  </div>
 </div>
 
 </main>
