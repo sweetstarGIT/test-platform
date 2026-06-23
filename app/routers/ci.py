@@ -208,7 +208,11 @@ def _build_request_from_job(job: CiJob) -> PushTaskRequest:
 
 
 def _is_running_job(job: CiJob) -> bool:
-    return job.status in ("received", "downloading", "extracting", "packaging", "assigning", "queued", "running")
+    if job.status not in ("received", "downloading", "extracting", "packaging", "assigning", "queued", "running"):
+        return False
+    if job.updated_at and (datetime.now() - job.updated_at).total_seconds() > 300:
+        return False
+    return True
 
 
 def _remove_job_package(db: Session, job: CiJob):
@@ -579,6 +583,7 @@ def run_ci_job_script(job_id: int, db: Session = Depends(get_db)):
     if _is_running_job(job):
         raise HTTPException(400, "CI流转任务仍在运行中，不能重复跑脚本")
     if not job.package_id:
+        _fail_job(db, job, "package_missing", "还没有可用测试包，请先手动下载")
         raise HTTPException(400, "还没有可用测试包，请先手动下载")
 
     req = _build_request_from_job(job)
@@ -589,7 +594,14 @@ def run_ci_job_script(job_id: int, db: Session = Depends(get_db)):
     job.report_id = None
     job.finished_at = None
     _add_job_event(db, job, "manual_run_script", "手动触发跑脚本", "assigning")
-    task = _create_ci_task(db, job, req)
+    try:
+        task = _create_ci_task(db, job, req)
+    except HTTPException as e:
+        _fail_job(db, job, "run_script_failed", str(e.detail))
+        raise
+    except Exception as e:
+        _fail_job(db, job, "run_script_failed", str(e))
+        raise HTTPException(400, f"手动跑脚本失败: {e}")
     pkg = db.query(Package).filter(Package.id == job.package_id).first()
     return {
         "message": "测试脚本已提交执行",
@@ -615,6 +627,11 @@ def retry_ci_job(job_id: int, db: Session = Depends(get_db)):
         raise HTTPException(400, "缺少构建产物下载地址，不能重试")
 
     req = _build_request_from_job(job)
+    pkg_exists = db.query(Package).filter(Package.id == job.package_id).first() if job.package_id else None
+    if job.package_id and not pkg_exists:
+        job.package_id = None
+        _add_job_event(db, job, "package_missing", "关联测试包不存在，改为重新下载构建产物", "received")
+
     if job.package_id:
         job.error = ""
         job.callback_error = ""
@@ -623,7 +640,14 @@ def retry_ci_job(job_id: int, db: Session = Depends(get_db)):
         job.report_id = None
         job.finished_at = None
         _add_job_event(db, job, "retry", "重试：复用已下载测试包并重新跑脚本", "assigning")
-        task = _create_ci_task(db, job, req)
+        try:
+            task = _create_ci_task(db, job, req)
+        except HTTPException as e:
+            _fail_job(db, job, "retry_failed", str(e.detail))
+            raise
+        except Exception as e:
+            _fail_job(db, job, "retry_failed", str(e))
+            raise HTTPException(400, f"重试失败: {e}")
         return {
             "message": "已复用测试包并重新提交脚本",
             "ci_job_id": job.id,
@@ -637,7 +661,13 @@ def retry_ci_job(job_id: int, db: Session = Depends(get_db)):
         }
 
     _add_job_event(db, job, "retry", "重试：重新下载构建产物并运行", "received")
-    result = _run_ci_job(db, job, req, manual=True)
+    try:
+        result = _run_ci_job(db, job, req, manual=True)
+    except HTTPException:
+        raise
+    except Exception as e:
+        _fail_job(db, job, "retry_failed", str(e))
+        raise HTTPException(400, f"重试失败: {e}")
     result["message"] = "已重新下载并提交脚本"
     result["mode"] = "full"
     return result
