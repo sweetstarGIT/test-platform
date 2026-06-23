@@ -735,7 +735,7 @@ def _notify_task_callback(task_id: int, db: Session):
 
     passed = task.status == "done"
     test_status = "passed" if passed else "failed"
-    test_log = task.error or ""
+    test_log = "测试通过" if passed else (task.error or "")
     if not test_log and not passed:
         logs = []
         try:
