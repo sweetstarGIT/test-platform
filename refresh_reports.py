@@ -15,6 +15,7 @@ from app.models import Task, Package, Report
 from app.config import TESTCASE_PROJECT_DIR
 from app.services import device_service
 from app.services.report_service import generate_html_report, generate_batch_report
+from app.services.result_details import apply_failure_details_to_modules, summarize_failure_reason
 
 
 def refresh_single_reports(db):
@@ -53,6 +54,11 @@ def refresh_single_reports(db):
                 logs = json.loads(task.logs)
             except Exception:
                 pass
+        if test_result.get("module_results"):
+            apply_failure_details_to_modules(test_result["module_results"], logs)
+            report.summary = json.dumps(test_result, ensure_ascii=False)
+        if task.status == "failed":
+            task.error = summarize_failure_reason(test_result, logs, task.error or "")
 
         # 获取设备型号
         device_model = ""

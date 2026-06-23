@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict
 from app.config import REPORT_DIR, TESTCASE_PROJECT_DIR
+from app.services.result_details import apply_failure_details_to_modules
 
 def _extract_detailed_results_from_html(html_content: str) -> Dict[str, str]:
     """从 testcase 生成的 HTML 报告中提取详细功能测试结果
@@ -38,6 +39,20 @@ def _extract_detailed_results_from_html(html_content: str) -> Dict[str, str]:
     for match in pattern.finditer(html_content):
         tab_name = re.sub(r'<[^>]+>', '', match.group(1)).strip()
         detail = re.sub(r'<[^>]+>', '', match.group(2)).strip()
+        if tab_name and detail:
+            results[tab_name] = detail
+
+    # 新版 UI-Automation 报告结构：
+    # <div class="module-result ..."><div class="module-result-main"><span>推荐</span><span>详情</span></div>
+    main_pattern = re.compile(
+        r'<div[^>]*class=["\'][^"\']*\bmodule-result-main\b[^"\']*["\'][^>]*>\s*'
+        r'<span[^>]*>(.*?)</span>\s*'
+        r'<span[^>]*>(.*?)</span>',
+        re.DOTALL | re.IGNORECASE,
+    )
+    for match in main_pattern.finditer(html_content):
+        tab_name = _strip_html(match.group(1))
+        detail = _strip_html(match.group(2))
         if tab_name and detail:
             results[tab_name] = detail
 
@@ -643,15 +658,23 @@ def generate_html_report(task_id: int, pkg, test_result: dict, device_serial: st
     # 功能测试结果 - 使用详细描述
     module_html = ""
     if module_results:
+        if logs:
+            apply_failure_details_to_modules(module_results, logs)
         rows = ""
         for tab_name, mr in module_results.items():
             ms = mr.get("status", "unknown")
-            # 优先使用从 testcase 报告提取的详细描述
-            detail_msg = detailed_results.get(tab_name, mr.get("message", ""))
+            # 失败场景优先展示平台日志提取的具体失败原因；通过场景使用 testcase 报告描述。
+            detail_msg = mr.get("message", "") if ms in ("failed", "skipped") else detailed_results.get(tab_name, mr.get("message", ""))
+            if not detail_msg:
+                detail_msg = detailed_results.get(tab_name, "")
             # 如果没有详细描述但有 module 名，显示 module 名
             if not detail_msg:
                 detail_msg = mr.get("module", "")
-            rows += f'<tr><td style="font-weight:600">{tab_name}</td><td>{_status_tag(ms)}</td><td style="color:#cbd5e1;font-size:12px">{detail_msg}</td></tr>'
+            rows += (
+                f'<tr><td style="font-weight:600">{html_lib.escape(str(tab_name))}</td>'
+                f'<td>{_status_tag(ms)}</td>'
+                f'<td style="color:#cbd5e1;font-size:12px">{html_lib.escape(str(detail_msg))}</td></tr>'
+            )
         module_html = f'''<div class="card">
             <h2>功能测试结果</h2>
             <table><thead><tr><th>功能 (TAB)</th><th>状态</th><th>结果详情</th></tr></thead>

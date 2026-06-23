@@ -492,6 +492,7 @@ def _serialize_ci_job(job: CiJob, db: Session) -> dict:
         events = json.loads(job.events) if job.events else []
     except Exception:
         events = []
+    error = job.error or (task.error if task else "")
     return {
         "id": job.id,
         "external_task_id": job.external_task_id,
@@ -511,7 +512,7 @@ def _serialize_ci_job(job: CiJob, db: Session) -> dict:
         "callback_url": job.callback_url,
         "callback_sent": job.callback_sent,
         "callback_error": job.callback_error,
-        "error": job.error,
+        "error": error,
         "new_package": job.new_package,
         "events": events,
         "created_at": job.created_at.isoformat() if job.created_at else "",

@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models import Task, Package, Report, CiJob
 from app.services import device_service
+from app.services.result_details import apply_failure_details_to_modules, summarize_failure_reason
 from app.config import REPORT_DIR, TESTCASE_PROJECT_DIR, CI_WEBHOOK_URL, CI_WEBHOOK_TIMEOUT, DEVICE_PKG_DIR
 
 # ==================== 设备级并行执行器 ====================
@@ -115,6 +116,10 @@ def _update_ci_job_for_task(db: Session, task: Task, step: str, message: str, st
     job.task_id = task.id
     job.package_id = task.package_id
     job.device_serial = task.device_serial
+    if status == "failed":
+        job.error = task.error or message
+    elif status == "done":
+        job.error = ""
     if status in ("done", "failed", "cancelled"):
         job.finished_at = task.finished_at or datetime.now()
     _append_ci_event(job, step, message, status)
@@ -251,7 +256,12 @@ def _run_task(task_id: int):
             final_status = "failed"
         else:
             final_status = "done"
-        _update_task(db, task, final_status)
+        failure_reason = ""
+        if final_status == "failed":
+            with _task_logs_lock:
+                current_logs = list(_task_logs.get(task_id, []))
+            failure_reason = summarize_failure_reason(test_result, current_logs, task.error or "")
+        _update_task(db, task, final_status, error=failure_reason)
         append_log(task_id, f"测试完成! 状态: {final_status}")
         job_status = "done" if final_status == "done" else final_status
         _update_ci_job_for_task(db, task, "test_finished", f"测试完成: {final_status}", job_status)
@@ -426,6 +436,10 @@ def _run_rpk_subprocess(task_id: int, task: Task, pkg: Package) -> Dict:
                     }
 
         exit_code = proc.returncode
+
+        with _task_logs_lock:
+            current_logs = list(_task_logs.get(task_id, []))
+        apply_failure_details_to_modules(result["module_results"], current_logs)
 
         # 判断测试结果：检查退出码、模块结果和失败包数
         # skipped 也算失败（模块未找到或未执行）
@@ -717,7 +731,17 @@ def _notify_task_callback(task_id: int, db: Session):
     test_status = "passed" if passed else "failed"
     test_log = task.error or ""
     if not test_log and not passed:
-        test_log = "自动测试失败"
+        logs = []
+        try:
+            logs = json.loads(task.logs) if task.logs else []
+        except Exception:
+            logs = []
+        summary = {}
+        try:
+            summary = json.loads(report.summary) if report and report.summary else {}
+        except Exception:
+            summary = {}
+        test_log = summarize_failure_reason(summary, logs, "自动测试失败")
     payload = {
         "externalTaskId": task.external_task_id,
         "testStatus": test_status,
