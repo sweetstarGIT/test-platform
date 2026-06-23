@@ -68,7 +68,20 @@ def _fail_job(db: Session, job: CiJob, step: str, message: str):
 
 def _resolve_filename(url: str, req: PushTaskRequest) -> tuple[str, str]:
     parsed = urllib.parse.urlparse(url)
-    filename = req.filename or os.path.basename(urllib.parse.unquote(parsed.path))
+    filename = req.filename or ""
+    if not filename:
+        query = urllib.parse.parse_qs(parsed.query)
+        for key in ("name", "filename", "file", "path"):
+            values = query.get(key) or []
+            for value in values:
+                candidate = os.path.basename(urllib.parse.unquote(value))
+                if get_file_type(candidate) in ("apk", "rpk", "zip"):
+                    filename = candidate
+                    break
+            if filename:
+                break
+    if not filename:
+        filename = os.path.basename(urllib.parse.unquote(parsed.path))
     ext = get_file_type(filename)
     file_type = (req.file_type or ext).lower().lstrip(".")
     if file_type not in ("apk", "rpk", "zip"):
@@ -185,8 +198,8 @@ def _build_request_from_job(job: CiJob) -> PushTaskRequest:
         external_task_id=job.external_task_id,
         package_name=job.package_name or "",
         artifact_url=job.artifact_url,
-        filename=job.artifact_filename or "",
-        file_type=job.artifact_type or "",
+        filename="",
+        file_type="",
         task_status=job.task_status or "manual_rerun",
         callback_url=job.callback_url or "",
         device_serial=job.device_serial or None,
