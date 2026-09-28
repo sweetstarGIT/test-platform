@@ -594,17 +594,39 @@ tbody tr:hover{background:rgba(255,255,255,0.03)}
 
 <!-- 全局日志弹窗：任务页和 CI 页共用，不能放在某个 tab 容器内 -->
 <div x-show="logModal" x-cloak class="fixed inset-0 glass-modal flex items-center justify-center z-[80]" @click.self="closeLogModal()" x-transition>
-  <div class="glass-card w-[750px] max-h-[85vh] flex flex-col shadow-2xl" @click.stop>
+  <div class="glass-card w-[900px] max-w-[95vw] max-h-[85vh] flex flex-col shadow-2xl" @click.stop>
     <div class="flex justify-between items-center px-5 py-4 border-b border-white/10">
       <div class="flex items-center gap-3">
         <h3 class="font-semibold text-gray-100">任务日志 <span class="text-gray-500">#<span x-text="logTaskId"></span></span></h3>
         <span x-show="logStreaming" class="badge bg-emerald-500/15 text-emerald-300 border border-emerald-500/20 animate-pulse">LIVE</span>
+        <span x-show="logStreaming && !logAutoFollow" class="badge bg-amber-500/15 text-amber-200 border border-amber-500/20">已暂停跟随</span>
       </div>
-      <button @click="closeLogModal()" class="text-gray-500 hover:text-gray-300 text-xl transition">&times;</button>
+      <div class="flex items-center gap-3">
+        <button x-show="!logAutoFollow" @click="resumeLogFollow()" class="btn-glass py-1.5 px-2.5 text-xs text-indigo-200 border-indigo-500/30 hover:bg-indigo-500/15 focus-visible:ring-2 focus-visible:ring-indigo-400">回到底部 <span x-show="logNewLineCount>0" x-text="'+'+logNewLineCount"></span></button>
+        <button @click="closeLogModal()" aria-label="关闭任务日志" class="text-gray-500 hover:text-gray-300 text-xl transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 rounded">&times;</button>
+      </div>
     </div>
-    <div class="flex-1 overflow-y-auto bg-[#030408] text-emerald-400 font-mono text-xs leading-relaxed p-5" x-ref="logContainer">
+    <div x-show="logTabResults.length>0" class="px-5 py-3 border-b border-white/10 bg-black/20 shrink-0">
+      <div class="flex items-center justify-between gap-3 mb-2">
+        <div class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">TAB 执行结论</div>
+        <div class="text-[11px] text-gray-500" x-text="logTabResults.length+' 个模块已返回结果'"></div>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
+        <template x-for="result in logTabResults" :key="result.key">
+          <div class="rounded-lg border px-3 py-2.5" :class="tabResultClass(result.status)">
+            <div class="flex items-center justify-between gap-3">
+              <div class="min-w-0 font-medium text-sm text-gray-100 truncate" x-text="result.tabName"></div>
+              <span class="badge shrink-0" :class="tabResultBadgeClass(result.status)" x-text="tabResultLabel(result.status)"></span>
+            </div>
+            <div class="mt-1 text-xs leading-5 text-gray-300 line-clamp-2" x-text="result.message"></div>
+          </div>
+        </template>
+      </div>
+    </div>
+    <div class="relative flex-1 min-h-0 overflow-y-auto bg-[#030408] text-emerald-400 font-mono text-xs leading-relaxed p-5" x-ref="logContainer" @scroll="handleLogScroll($event)">
       <template x-for="(line,i) in logLines" :key="i"><div x-text="line" class="py-0.5 hover:bg-white/5 px-1 -mx-1 rounded"></div></template>
       <div x-show="logLines.length===0" class="text-gray-600">等待日志...</div>
+      <button x-show="!logAutoFollow && logNewLineCount>0" @click="resumeLogFollow()" class="sticky bottom-1 left-1/2 -translate-x-1/2 btn-glass btn-primary py-1.5 px-3 text-xs shadow-lg focus-visible:ring-2 focus-visible:ring-indigo-300">有 <span x-text="logNewLineCount"></span> 条新日志，点击查看</button>
     </div>
   </div>
 </div>
@@ -627,8 +649,34 @@ function app() {
     uploading:false, showCreateTask:false,
     newTask:{device_serial:'', autoDistribute:false, new_package:false}, taskSelectedPkgs:[], selectedPackages:[],
     wifiAddr:'', wifiMsg:'', wifiOk:false,
-    logModal:false, logTaskId:null, logLines:[], logStreaming:false, _eventSource:null,
+    logModal:false, logTaskId:null, logLines:[], logStreaming:false, logAutoFollow:true, logNewLineCount:0, _eventSource:null,
     expandedBatches:[],
+
+    get logTabResults() {
+      const results = [];
+      let currentTabName = '';
+      this.logLines.forEach((rawLine, index) => {
+        const line = String(rawLine || '');
+        const tabMatch = line.match(/执行\s*TAB\s*\[\d+\]\s*[:：]\s*(.+)$/);
+        if (tabMatch) {
+          currentTabName = tabMatch[1].trim();
+          return;
+        }
+        const resultMatch = line.match(/模块结果\s*[:：]\s*(success|failed|skipped)\s*-\s*(.+)$/i);
+        if (!resultMatch || !currentTabName) return;
+        const status = resultMatch[1].toLowerCase();
+        const existing = results.find(item => item.tabName === currentTabName);
+        const result = {
+          key: `${currentTabName}-${index}`,
+          tabName: currentTabName,
+          status,
+          message: resultMatch[2].trim(),
+        };
+        if (existing) Object.assign(existing, result);
+        else results.push(result);
+      });
+      return results;
+    },
 
     get taskBatches() {
       const batches = [];
@@ -755,10 +803,9 @@ function app() {
     async deleteAllCiJobs(){if(!confirm('确定清空全部CI流转记录？'))return;await this.api('/api/ci/jobs',{method:'DELETE'});await this.loadCiJobs()},
 
     async viewTaskLogs(task){
-      this.logTaskId=task.id;this.logLines=[];this.logModal=true;this.logStreaming=false;
+      this.logTaskId=task.id;this.logLines=[];this.logModal=true;this.logStreaming=false;this.logAutoFollow=true;this.logNewLineCount=0;
       const data=await this.api('/api/tasks/'+task.id);
-      this.logLines=data.logs||[];
-      this.$nextTick(()=>{const c=this.$refs.logContainer;if(c)c.scrollTop=c.scrollHeight});
+      this._updateLogLines(data.logs||[],true);
       if(data.status==='running'||data.status==='pending'){
         this.logStreaming=true;
         this._startLogPolling(task.id);
@@ -769,8 +816,7 @@ function app() {
       this._logPoller=setInterval(async()=>{
         const data=await this.api('/api/tasks/'+taskId);
         if(!data||!data.logs)return;
-        this.logLines=data.logs;
-        this.$nextTick(()=>{const c=this.$refs.logContainer;if(c)c.scrollTop=c.scrollHeight});
+        this._updateLogLines(data.logs);
         if(data.status&&!['running','pending'].includes(data.status)){
           this.logStreaming=false;
           clearInterval(this._logPoller);this._logPoller=null;
@@ -778,8 +824,41 @@ function app() {
         }
       },1500);
     },
+    _updateLogLines(lines,forceFollow=false){
+      const nextLines=Array.isArray(lines)?lines:[];
+      const newLineCount=Math.max(0,nextLines.length-this.logLines.length);
+      this.logLines=nextLines;
+      if(forceFollow||this.logAutoFollow){
+        this.logAutoFollow=true;
+        this.logNewLineCount=0;
+        this.$nextTick(()=>{
+          this.scrollLogToBottom();
+          requestAnimationFrame(()=>this.scrollLogToBottom());
+        });
+      }else if(newLineCount>0){
+        this.logNewLineCount+=newLineCount;
+      }
+    },
+    isLogNearBottom(container){return container.scrollHeight-container.scrollTop-container.clientHeight<48},
+    handleLogScroll(event){
+      const container=event.currentTarget;
+      this.logAutoFollow=this.isLogNearBottom(container);
+      if(this.logAutoFollow)this.logNewLineCount=0;
+    },
+    scrollLogToBottom(){
+      const container=this.$refs.logContainer;
+      if(container)container.scrollTop=container.scrollHeight;
+    },
+    resumeLogFollow(){
+      this.logAutoFollow=true;
+      this.logNewLineCount=0;
+      this.$nextTick(()=>this.scrollLogToBottom());
+    },
+    tabResultLabel(status){return({success:'通过',failed:'失败',skipped:'跳过'})[status]||status},
+    tabResultClass(status){return({success:'bg-emerald-500/10 border-emerald-500/30',failed:'bg-rose-500/10 border-rose-500/35',skipped:'bg-amber-500/10 border-amber-500/30'})[status]||'bg-white/5 border-white/10'},
+    tabResultBadgeClass(status){return({success:'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30',failed:'bg-rose-500/15 text-rose-200 border border-rose-500/30',skipped:'bg-amber-500/15 text-amber-200 border border-amber-500/30'})[status]||'bg-white/5 text-gray-300 border border-white/10'},
     closeLogModal(){
-      this.logModal=false;this.logStreaming=false;
+      this.logModal=false;this.logStreaming=false;this.logAutoFollow=true;this.logNewLineCount=0;
       if(this._eventSource){this._eventSource.close();this._eventSource=null}
       if(this._logPoller){clearInterval(this._logPoller);this._logPoller=null}
     },
