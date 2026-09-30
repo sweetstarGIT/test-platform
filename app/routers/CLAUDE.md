@@ -60,7 +60,7 @@
 
 | 方法 | 路径 | 功能 |
 |------|------|------|
-| GET | / | 报告列表 |
+| GET | / | 分页报告列表（`page`、`page_size`） |
 | GET | /{report_id} | 查看报告 HTML |
 | DELETE | /{report_id} | 删除报告 |
 | DELETE | /all/clear | 清空所有报告 |
@@ -120,6 +120,21 @@ data: [14:30:00] 开始测试: test.rpk
 data: [14:30:01] 目标设备: xxx
 
 data: [END] 任务状态: done
+```
+
+### 分页报告列表
+
+```python
+GET /api/reports?page=1&page_size=20
+
+Response:
+{
+  "items": [{"id": 1, "package_name": "com.example.app", "status": "success"}],
+  "total": 45,
+  "page": 1,
+  "page_size": 20,
+  "total_pages": 3
+}
 ```
 
 ---

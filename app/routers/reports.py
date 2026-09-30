@@ -1,6 +1,6 @@
 """报告查看路由"""
 import os
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
@@ -11,20 +11,41 @@ router = APIRouter()
 
 
 @router.get("")
-def list_reports(db: Session = Depends(get_db)):
-    """报告列表"""
-    reports = db.query(Report).order_by(Report.created_at.desc()).limit(50).all()
-    return [
-        {
-            "id": r.id,
-            "task_id": r.task_id,
-            "batch_id": r.batch_id,
-            "package_name": r.package_name,
-            "status": r.status,
-            "created_at": r.created_at.isoformat() if r.created_at else "",
-        }
-        for r in reports
-    ]
+def list_reports(
+    page: int = Query(1, ge=1, description="页码，从 1 开始"),
+    page_size: int = Query(20, ge=1, le=100, description="每页数量"),
+    db: Session = Depends(get_db),
+):
+    """分页获取报告列表。"""
+    total = db.query(Report).count()
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    effective_page = min(page, total_pages)
+
+    reports = (
+        db.query(Report)
+        .order_by(Report.created_at.desc(), Report.id.desc())
+        .offset((effective_page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    return {
+        "items": [
+            {
+                "id": r.id,
+                "task_id": r.task_id,
+                "batch_id": r.batch_id,
+                "package_name": r.package_name,
+                "status": r.status,
+                "created_at": r.created_at.isoformat() if r.created_at else "",
+            }
+            for r in reports
+        ],
+        "total": total,
+        "page": effective_page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+    }
 
 
 @router.get("/{report_id}")

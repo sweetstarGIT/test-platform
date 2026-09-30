@@ -27,6 +27,8 @@
 .btn-glass{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 14px;border:1px solid rgba(255,255,255,0.1);border-radius:8px;font-size:12px;font-weight:500;cursor:pointer;transition:all .15s ease;background:rgba(255,255,255,0.05);color:#e5e7eb}
 .btn-glass:hover{background:rgba(255,255,255,0.1);border-color:rgba(255,255,255,0.18)}
 .btn-glass:active{transform:translateY(1px)}
+.btn-glass:disabled{cursor:not-allowed;opacity:.45;transform:none}
+.btn-glass:disabled:hover{background:rgba(255,255,255,0.05);border-color:rgba(255,255,255,0.1);box-shadow:none}
 .btn-primary{background:rgba(99,102,241,0.15);border-color:rgba(99,102,241,0.4);color:#c7d2fe}
 .btn-primary:hover{background:rgba(99,102,241,0.25);border-color:rgba(99,102,241,0.6);box-shadow:0 0 16px rgba(99,102,241,0.15)}
 .btn-danger{background:rgba(251,113,133,0.12);border-color:rgba(251,113,133,0.35);color:#fecdd3}
@@ -158,7 +160,7 @@ tbody tr:hover{background:rgba(255,255,255,0.03)}
       <div class="text-gray-400 text-sm mt-1">运行中任务</div>
     </div>
     <div class="glass-card glass-card-hover p-5 border-l-4 border-l-amber-400">
-      <div class="text-3xl font-bold text-amber-300 tracking-tight" x-text="reports.length">0</div>
+      <div class="text-3xl font-bold text-amber-300 tracking-tight" x-text="reportTotal">0</div>
       <div class="text-gray-400 text-sm mt-1">测试报告</div>
     </div>
   </div>
@@ -376,11 +378,15 @@ tbody tr:hover{background:rgba(255,255,255,0.03)}
 <div x-show="tab==='reports'" x-cloak>
   <h2 class="text-lg font-semibold text-gray-100 mb-4 tracking-tight">测试报告</h2>
   <div class="glass-card p-5">
-    <div class="flex justify-between items-center mb-3">
-      <h3 class="font-semibold text-gray-200 text-sm tracking-wide">报告列表 (<span x-text="reports.length"></span>)</h3>
-      <button x-show="reports.length>0" @click="deleteAllReports()" class="btn-glass btn-danger">全部删除</button>
+    <div class="flex justify-between items-center mb-3 gap-3">
+      <div>
+        <h3 class="font-semibold text-gray-200 text-sm tracking-wide">报告列表 (<span x-text="reportTotal"></span>)</h3>
+        <div x-show="reportTotal>0" class="text-xs text-gray-500 mt-1" x-text="reportRangeLabel"></div>
+      </div>
+      <button x-show="reportTotal>0" @click="deleteAllReports()" class="btn-glass btn-danger">全部删除</button>
     </div>
-    <table class="w-full"><thead><tr class="border-b border-white/10"><th>ID</th><th>包名</th><th>类型</th><th>状态</th><th>时间</th><th>操作</th></tr></thead>
+    <div x-show="reportLoading" class="text-xs text-indigo-300 mb-2">正在加载报告...</div>
+    <table x-show="reports.length>0" class="w-full"><thead><tr class="border-b border-white/10"><th>ID</th><th>包名</th><th>类型</th><th>状态</th><th>时间</th><th>操作</th></tr></thead>
     <tbody><template x-for="r in reports" :key="r.id"><tr>
       <td class="text-gray-500" x-text="'#'+r.id"></td>
       <td class="font-medium text-gray-200" x-text="r.package_name"></td>
@@ -392,6 +398,22 @@ tbody tr:hover{background:rgba(255,255,255,0.03)}
         <button @click="deleteReport(r.id)" class="text-rose-300 hover:text-rose-200 text-xs">删除</button>
       </td>
     </tr></template></tbody></table>
+    <div x-show="!reportLoading && reports.length===0" class="text-center text-gray-500 py-10">暂无测试报告</div>
+    <div x-show="reportTotal>0" class="mt-4 pt-4 border-t border-white/10 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div class="text-xs text-gray-500">
+        第 <span x-text="reportPage"></span> / <span x-text="reportTotalPages"></span> 页
+      </div>
+      <div class="flex items-center gap-1.5 flex-wrap">
+        <button @click="goToReportPage(reportPage-1)" :disabled="reportPage<=1 || reportLoading" class="btn-glass px-2.5 py-1.5 text-xs" aria-label="上一页">上一页</button>
+        <template x-for="item in reportPageItems" :key="item.key">
+          <span class="contents">
+            <span x-show="item.type==='ellipsis'" class="text-gray-500 px-1" x-text="'…'"></span>
+            <button x-show="item.type==='page'" @click="goToReportPage(item.page)" :disabled="reportLoading" class="btn-glass min-w-8 px-2 py-1.5 text-xs" :class="item.page===reportPage?'btn-primary':''" :aria-label="'第 '+item.page+' 页'" x-text="item.page"></button>
+          </span>
+        </template>
+        <button @click="goToReportPage(reportPage+1)" :disabled="reportPage>=reportTotalPages || reportLoading" class="btn-glass px-2.5 py-1.5 text-xs" aria-label="下一页">下一页</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -636,7 +658,7 @@ tbody tr:hover{background:rgba(255,255,255,0.03)}
 <script>
 function app() {
   return {
-    tab:'dashboard', packages:[], devices:[], tasks:[], reports:[], ciJobs:[], agents:[], deviceLoads:[], lbStats:{},
+    tab:'dashboard', packages:[], devices:[], tasks:[], reports:[], reportPage:1, reportPageSize:20, reportTotal:0, reportTotalPages:1, reportLoading:false, _reportRequestId:0, ciJobs:[], agents:[], deviceLoads:[], lbStats:{},
     ciStepLabels:[
       {key:'received',label:'接收'},
       {key:'downloaded',label:'下载'},
@@ -676,6 +698,30 @@ function app() {
         else results.push(result);
       });
       return results;
+    },
+
+    get reportRangeLabel() {
+      if (!this.reportTotal) return '暂无报告';
+      const start = (this.reportPage - 1) * this.reportPageSize + 1;
+      const end = Math.min(this.reportPage * this.reportPageSize, this.reportTotal);
+      return `显示第 ${start}-${end} 条，共 ${this.reportTotal} 条`;
+    },
+
+    get reportPageItems() {
+      if (this.reportTotalPages <= 1) return [{key:'page-1', type:'page', page:1}];
+      const pages = new Set([1, this.reportTotalPages, this.reportPage]);
+      for (let page = this.reportPage - 1; page <= this.reportPage + 1; page++) {
+        if (page > 1 && page < this.reportTotalPages) pages.add(page);
+      }
+      const orderedPages = [...pages].sort((left, right) => left - right);
+      const items = [];
+      orderedPages.forEach((page, index) => {
+        if (index && page > orderedPages[index - 1] + 1) {
+          items.push({key:`ellipsis-${orderedPages[index - 1]}-${page}`, type:'ellipsis'});
+        }
+        items.push({key:`page-${page}`, type:'page', page});
+      });
+      return items;
     },
 
     get taskBatches() {
@@ -720,7 +766,25 @@ function app() {
     async loadPackages(){this.packages=await this.api('/api/packages')},
     async loadDevices(){this.devices=(await this.api('/api/devices')).filter(d=>!d.error)},
     async loadTasks(){this.tasks=await this.api('/api/tasks')},
-    async loadReports(){this.reports=await this.api('/api/reports')},
+    async loadReports(page=this.reportPage){
+      const requestedPage=Math.max(1,Number(page)||1);
+      const requestId=++this._reportRequestId;
+      this.reportLoading=true;
+      const data=await this.api(`/api/reports?page=${requestedPage}&page_size=${this.reportPageSize}`);
+      if(requestId!==this._reportRequestId)return;
+      this.reportLoading=false;
+      if(!data||!Array.isArray(data.items))return;
+      this.reports=data.items;
+      this.reportTotal=Number(data.total)||0;
+      this.reportPage=Number(data.page)||1;
+      this.reportPageSize=Number(data.page_size)||this.reportPageSize;
+      this.reportTotalPages=Math.max(1,Number(data.total_pages)||1);
+    },
+    async goToReportPage(page){
+      const targetPage=Math.max(1,Math.min(Number(page)||1,this.reportTotalPages));
+      if(targetPage===this.reportPage||this.reportLoading)return;
+      await this.loadReports(targetPage);
+    },
     async loadCiJobs(){this.ciJobs=await this.api('/api/ci/jobs')},
     async loadAgents(){this.agents=await this.api('/api/devices/agents')},
     async loadDeviceLoads(){const r=await this.api('/api/tasks/stats/loadbalancer');this.deviceLoads=r.devices||[]},
@@ -793,8 +857,8 @@ function app() {
     async deleteBatchTasks(batchId){if(!confirm('确定删除该批量任务？'))return;await this.api('/api/tasks/batch/'+batchId,{method:'DELETE'});this.expandedBatches=this.expandedBatches.filter(id=>id!==batchId);await this.loadTasks()},
     async deleteAllTasks(){if(!confirm('确定删除全部任务？'))return;await this.api('/api/tasks/all/clear',{method:'DELETE'});await this.loadTasks()},
 
-    async deleteReport(id){if(!confirm('确定删除？'))return;await this.api('/api/reports/'+id,{method:'DELETE'});await this.loadReports()},
-    async deleteAllReports(){if(!confirm('确定删除全部报告？'))return;await this.api('/api/reports/all/clear',{method:'DELETE'});await this.loadReports()},
+    async deleteReport(id){if(!confirm('确定删除？'))return;await this.api('/api/reports/'+id,{method:'DELETE'});await this.loadReports(this.reportPage)},
+    async deleteAllReports(){if(!confirm('确定删除全部报告？'))return;await this.api('/api/reports/all/clear',{method:'DELETE'});await this.loadReports(1)},
     async retryCiJob(id){if(!confirm('确定重试该CI任务？有已下载测试包时会直接跑脚本，否则会重新下载。'))return;const r=await this.api('/api/ci/jobs/'+id+'/retry',{method:'POST'});if(r&&r.message)console.log(r.message,r);await Promise.all([this.loadCiJobs(),this.loadPackages(),this.loadTasks()])},
     async downloadCiJob(id){if(!confirm('确定手动下载并入库该CI构建产物？'))return;const r=await this.api('/api/ci/jobs/'+id+'/download',{method:'POST'});if(r&&r.message)console.log(r.message,r);await Promise.all([this.loadCiJobs(),this.loadPackages()])},
     async runCiJobScript(id){if(!confirm('确定使用已下载测试包手动跑脚本？'))return;const r=await this.api('/api/ci/jobs/'+id+'/run-script',{method:'POST'});if(r&&r.message)console.log(r.message,r);await Promise.all([this.loadCiJobs(),this.loadTasks()])},
