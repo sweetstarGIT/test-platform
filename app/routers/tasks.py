@@ -3,9 +3,10 @@ import asyncio
 import json
 import uuid
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db, SessionLocal
@@ -70,27 +71,72 @@ def create_task(req: CreateTaskRequest, db: Session = Depends(get_db)):
     }
 
 
+def _serialize_tasks(tasks: List[Task], db: Session) -> List[dict]:
+    package_ids = {task.package_id for task in tasks}
+    packages = {}
+    if package_ids:
+        packages = {
+            package.id: package
+            for package in db.query(Package).filter(Package.id.in_(package_ids)).all()
+        }
+
+    return [
+        {
+            "id": task.id,
+            "package_name": packages[task.package_id].package_name if task.package_id in packages else "",
+            "filename": packages[task.package_id].filename if task.package_id in packages else "",
+            "device_serial": task.device_serial,
+            "batch_id": task.batch_id,
+            "status": task.status,
+            "error": task.error,
+            "new_package": task.new_package,
+            "created_at": task.created_at.isoformat() if task.created_at else "",
+            "started_at": task.started_at.isoformat() if task.started_at else "",
+            "finished_at": task.finished_at.isoformat() if task.finished_at else "",
+        }
+        for task in tasks
+    ]
+
+
+def _task_status_counts(db: Session) -> dict:
+    return {
+        status or "": count
+        for status, count in db.query(Task.status, func.count(Task.id)).group_by(Task.status).all()
+    }
+
+
 @router.get("")
-def list_tasks(db: Session = Depends(get_db)):
-    """任务列表"""
-    tasks = db.query(Task).order_by(Task.created_at.desc()).limit(50).all()
-    result = []
-    for t in tasks:
-        pkg = db.query(Package).filter(Package.id == t.package_id).first()
-        result.append({
-            "id": t.id,
-            "package_name": pkg.package_name if pkg else "",
-            "filename": pkg.filename if pkg else "",
-            "device_serial": t.device_serial,
-            "batch_id": t.batch_id,
-            "status": t.status,
-            "error": t.error,
-            "new_package": t.new_package,
-            "created_at": t.created_at.isoformat() if t.created_at else "",
-            "started_at": t.started_at.isoformat() if t.started_at else "",
-            "finished_at": t.finished_at.isoformat() if t.finished_at else "",
-        })
-    return result
+def list_tasks(
+    page: Optional[int] = Query(None, ge=1, description="页码，从 1 开始"),
+    page_size: Optional[int] = Query(None, ge=1, le=100, description="每页数量"),
+    db: Session = Depends(get_db),
+):
+    """列出任务；带分页参数时返回分页对象，未带参数时保留旧数组响应。"""
+    query = db.query(Task).order_by(Task.created_at.desc(), Task.id.desc())
+
+    if page is None and page_size is None:
+        return _serialize_tasks(query.limit(50).all(), db)
+
+    effective_page_size = page_size or 20
+    requested_page = page or 1
+    total = db.query(Task).count()
+    total_pages = max(1, (total + effective_page_size - 1) // effective_page_size)
+    effective_page = min(requested_page, total_pages)
+    tasks = (
+        query
+        .offset((effective_page - 1) * effective_page_size)
+        .limit(effective_page_size)
+        .all()
+    )
+
+    return {
+        "items": _serialize_tasks(tasks, db),
+        "total": total,
+        "page": effective_page,
+        "page_size": effective_page_size,
+        "total_pages": total_pages,
+        "status_counts": _task_status_counts(db),
+    }
 
 
 @router.get("/{task_id}")

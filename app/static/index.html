@@ -148,7 +148,7 @@ tbody tr:hover{background:rgba(255,255,255,0.03)}
   <h2 class="text-lg font-semibold text-gray-100 mb-4 tracking-tight">仪表盘</h2>
   <div class="grid grid-cols-4 gap-4 mb-6">
     <div class="glass-card glass-card-hover p-5 border-l-4 border-l-indigo-500">
-      <div class="text-3xl font-bold text-indigo-300 tracking-tight" x-text="packages.length">0</div>
+      <div class="text-3xl font-bold text-indigo-300 tracking-tight" x-text="packageTotal">0</div>
       <div class="text-gray-400 text-sm mt-1">已上传包</div>
     </div>
     <div class="glass-card glass-card-hover p-5 border-l-4 border-l-emerald-400">
@@ -156,7 +156,7 @@ tbody tr:hover{background:rgba(255,255,255,0.03)}
       <div class="text-gray-400 text-sm mt-1">在线设备</div>
     </div>
     <div class="glass-card glass-card-hover p-5 border-l-4 border-l-violet-400">
-      <div class="text-3xl font-bold text-violet-300 tracking-tight" x-text="tasks.filter(t=>t.status==='running').length">0</div>
+      <div class="text-3xl font-bold text-violet-300 tracking-tight" x-text="taskStatusTotal(['running'])">0</div>
       <div class="text-gray-400 text-sm mt-1">运行中任务</div>
     </div>
     <div class="glass-card glass-card-hover p-5 border-l-4 border-l-amber-400">
@@ -167,7 +167,7 @@ tbody tr:hover{background:rgba(255,255,255,0.03)}
   <div class="glass-card p-5">
     <h3 class="font-semibold text-gray-200 mb-3 text-sm tracking-wide">最近任务</h3>
     <table class="w-full"><thead><tr class="border-b border-white/10"><th>ID</th><th>包名</th><th>设备</th><th>状态</th><th>时间</th></tr></thead>
-    <tbody><template x-for="t in tasks.slice(0,10)" :key="t.id"><tr>
+    <tbody><template x-for="t in recentTasks" :key="t.id"><tr>
       <td class="text-gray-500" x-text="'#'+t.id"></td>
       <td class="font-medium text-gray-200" x-text="t.package_name||t.filename"></td>
       <td class="text-gray-400 text-xs" x-text="t.device_serial"></td>
@@ -194,11 +194,14 @@ tbody tr:hover{background:rgba(255,255,255,0.03)}
     </div>
   </div>
   <div class="glass-card p-5">
-    <div class="flex justify-between items-center mb-3">
-      <h3 class="font-semibold text-gray-200 text-sm tracking-wide">已上传包 (<span x-text="packages.length"></span>)</h3>
+    <div class="flex justify-between items-center mb-3 gap-3">
+      <div>
+        <h3 class="font-semibold text-gray-200 text-sm tracking-wide">已上传包 (<span x-text="packageTotal"></span>)</h3>
+        <div x-show="packageTotal>0" class="text-xs text-gray-500 mt-1" x-text="pageRangeLabel(packagePage, packagePageSize, packageTotal)"></div>
+      </div>
       <div class="flex gap-2">
         <button x-show="selectedPackages.length>0" @click="batchDeletePackages()" class="btn-glass btn-danger">批量删除 (<span x-text="selectedPackages.length"></span>)</button>
-        <button x-show="packages.length>0" @click="deleteAllPackages()" class="btn-glass btn-danger">全部删除</button>
+        <button x-show="packageTotal>0" @click="deleteAllPackages()" class="btn-glass btn-danger">全部删除</button>
       </div>
     </div>
     <table class="w-full"><thead><tr class="border-b border-white/10">
@@ -218,6 +221,22 @@ tbody tr:hover{background:rgba(255,255,255,0.03)}
         <button @click="deletePackage(p.id)" class="text-rose-300 hover:text-rose-200 text-xs">删除</button>
       </td>
     </tr></template></tbody></table>
+    <div x-show="packages.length===0" class="text-center text-gray-500 py-10">暂无已上传包</div>
+    <div x-show="packageTotal>0" class="mt-4 pt-4 border-t border-white/10 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div class="text-xs text-gray-500">
+        第 <span x-text="packagePage"></span> / <span x-text="packageTotalPages"></span> 页
+      </div>
+      <div class="flex items-center gap-1.5 flex-wrap">
+        <button @click="goToPackagePage(packagePage-1)" :disabled="packagePage<=1 || packageLoading" class="btn-glass px-2.5 py-1.5 text-xs" aria-label="包列表上一页">上一页</button>
+        <template x-for="item in paginationItems(packagePage, packageTotalPages, 'package')" :key="item.key">
+          <span class="contents">
+            <span x-show="item.type==='ellipsis'" class="text-gray-500 px-1">…</span>
+            <button x-show="item.type==='page'" @click="goToPackagePage(item.page)" :disabled="packageLoading" class="btn-glass min-w-8 px-2 py-1.5 text-xs" :class="item.page===packagePage?'btn-primary':''" :aria-label="'包列表第 '+item.page+' 页'" x-text="item.page"></button>
+          </span>
+        </template>
+        <button @click="goToPackagePage(packagePage+1)" :disabled="packagePage>=packageTotalPages || packageLoading" class="btn-glass px-2.5 py-1.5 text-xs" aria-label="包列表下一页">下一页</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -231,13 +250,13 @@ tbody tr:hover{background:rgba(255,255,255,0.03)}
         <div class="flex items-center justify-between mb-2">
           <span class="text-sm text-gray-400">选择包</span>
           <label class="flex items-center gap-1 text-xs text-gray-500 cursor-pointer">
-            <input type="checkbox" class="rounded bg-black/30 border-white/20" @change="toggleAllTaskPackages($event)" :checked="taskSelectedPkgs.length===packages.length&&packages.length>0">
+            <input type="checkbox" class="rounded bg-black/30 border-white/20" @change="toggleAllTaskPackages($event)" :checked="taskSelectedPkgs.length===taskPackageOptions.length&&taskPackageOptions.length>0">
             <span>全选</span>
             <span x-show="taskSelectedPkgs.length>0" class="text-indigo-300 font-semibold" x-text="'('+taskSelectedPkgs.length+')'"></span>
           </label>
         </div>
         <div class="glass-inset max-h-48 overflow-y-auto p-2 space-y-0.5">
-          <template x-for="p in packages" :key="p.id">
+          <template x-for="p in taskPackageOptions" :key="p.id">
             <label class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/5 cursor-pointer text-sm">
               <input type="checkbox" :value="p.id" x-model.number="taskSelectedPkgs" class="rounded bg-black/30 border-white/20">
               <span class="text-gray-200" x-text="p.filename"></span>
@@ -283,11 +302,14 @@ tbody tr:hover{background:rgba(255,255,255,0.03)}
   </div>
 
   <div class="glass-card p-5">
-    <div class="flex justify-between items-center mb-3">
-      <h3 class="font-semibold text-gray-200 text-sm tracking-wide">任务列表</h3>
+    <div class="flex justify-between items-center mb-3 gap-3">
+      <div>
+        <h3 class="font-semibold text-gray-200 text-sm tracking-wide">任务列表 (<span x-text="taskTotal"></span>)</h3>
+        <div x-show="taskTotal>0" class="text-xs text-gray-500 mt-1" x-text="pageRangeLabel(taskPage, taskPageSize, taskTotal)"></div>
+      </div>
       <div class="flex gap-2">
-        <button x-show="tasks.length>0" @click="deleteAllTasks()" class="btn-glass btn-danger">全部删除</button>
-        <button @click="showCreateTask=!showCreateTask" class="btn-glass btn-primary">新建任务</button>
+        <button x-show="taskTotal>0" @click="deleteAllTasks()" class="btn-glass btn-danger">全部删除</button>
+        <button @click="toggleTaskCreator()" class="btn-glass btn-primary">新建任务</button>
       </div>
     </div>
     <!-- 任务列表：用 div grid 彻底重写，避开 Alpine x-for 在 table 里的兼容性问题 -->
@@ -371,6 +393,21 @@ tbody tr:hover{background:rgba(255,255,255,0.03)}
       </template>
       <div x-show="tasks.length === 0" class="text-center text-gray-500 py-10">暂无任务</div>
     </div>
+    <div x-show="taskTotal>0" class="mt-4 pt-4 border-t border-white/10 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div class="text-xs text-gray-500">
+        第 <span x-text="taskPage"></span> / <span x-text="taskTotalPages"></span> 页
+      </div>
+      <div class="flex items-center gap-1.5 flex-wrap">
+        <button @click="goToTaskPage(taskPage-1)" :disabled="taskPage<=1 || taskLoading" class="btn-glass px-2.5 py-1.5 text-xs" aria-label="任务列表上一页">上一页</button>
+        <template x-for="item in paginationItems(taskPage, taskTotalPages, 'task')" :key="item.key">
+          <span class="contents">
+            <span x-show="item.type==='ellipsis'" class="text-gray-500 px-1">…</span>
+            <button x-show="item.type==='page'" @click="goToTaskPage(item.page)" :disabled="taskLoading" class="btn-glass min-w-8 px-2 py-1.5 text-xs" :class="item.page===taskPage?'btn-primary':''" :aria-label="'任务列表第 '+item.page+' 页'" x-text="item.page"></button>
+          </span>
+        </template>
+        <button @click="goToTaskPage(taskPage+1)" :disabled="taskPage>=taskTotalPages || taskLoading" class="btn-glass px-2.5 py-1.5 text-xs" aria-label="任务列表下一页">下一页</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -422,29 +459,32 @@ tbody tr:hover{background:rgba(255,255,255,0.03)}
   <h2 class="text-lg font-semibold text-gray-100 mb-4 tracking-tight">CI流转</h2>
   <div class="grid grid-cols-4 gap-4 mb-4">
     <div class="glass-card p-4 border-l-4 border-l-indigo-500">
-      <div class="text-2xl font-bold text-indigo-300" x-text="ciJobs.length">0</div>
+      <div class="text-2xl font-bold text-indigo-300" x-text="ciTotal">0</div>
       <div class="text-gray-400 text-xs mt-1">推送记录</div>
     </div>
     <div class="glass-card p-4 border-l-4 border-l-violet-400">
-      <div class="text-2xl font-bold text-violet-300" x-text="ciJobs.filter(j=>['received','downloading','extracting','packaging','assigning','queued','running'].includes(j.status)).length">0</div>
+      <div class="text-2xl font-bold text-violet-300" x-text="ciStatusTotal(['received','downloading','extracting','packaging','assigning','queued','running'])">0</div>
       <div class="text-gray-400 text-xs mt-1">流转中</div>
     </div>
     <div class="glass-card p-4 border-l-4 border-l-emerald-400">
-      <div class="text-2xl font-bold text-emerald-300" x-text="ciJobs.filter(j=>j.status==='done').length">0</div>
+      <div class="text-2xl font-bold text-emerald-300" x-text="ciStatusTotal(['done'])">0</div>
       <div class="text-gray-400 text-xs mt-1">已通过</div>
     </div>
     <div class="glass-card p-4 border-l-4 border-l-rose-400">
-      <div class="text-2xl font-bold text-rose-300" x-text="ciJobs.filter(j=>['failed','cancelled'].includes(j.status)).length">0</div>
+      <div class="text-2xl font-bold text-rose-300" x-text="ciStatusTotal(['failed','cancelled'])">0</div>
       <div class="text-gray-400 text-xs mt-1">异常/取消</div>
     </div>
   </div>
 
   <div class="glass-card p-5">
-    <div class="flex justify-between items-center mb-3">
-      <h3 class="font-semibold text-gray-200 text-sm tracking-wide">CI任务链路 (<span x-text="ciJobs.length"></span>)</h3>
+    <div class="flex justify-between items-center mb-3 gap-3">
+      <div>
+        <h3 class="font-semibold text-gray-200 text-sm tracking-wide">CI任务链路 (<span x-text="ciTotal"></span>)</h3>
+        <div x-show="ciTotal>0" class="text-xs text-gray-500 mt-1" x-text="pageRangeLabel(ciPage, ciPageSize, ciTotal)"></div>
+      </div>
       <div class="flex gap-2">
         <button @click="loadCiJobs()" class="btn-glass">刷新</button>
-        <button x-show="ciJobs.length>0" @click="deleteAllCiJobs()" class="btn-glass btn-danger">清空记录</button>
+        <button x-show="ciTotal>0" @click="deleteAllCiJobs()" class="btn-glass btn-danger">清空记录</button>
       </div>
     </div>
     <div class="space-y-3">
@@ -516,6 +556,21 @@ tbody tr:hover{background:rgba(255,255,255,0.03)}
         </div>
       </template>
       <div x-show="ciJobs.length===0" class="text-center text-gray-500 py-10 text-sm">暂无CI流转记录</div>
+    </div>
+    <div x-show="ciTotal>0" class="mt-4 pt-4 border-t border-white/10 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div class="text-xs text-gray-500">
+        第 <span x-text="ciPage"></span> / <span x-text="ciTotalPages"></span> 页
+      </div>
+      <div class="flex items-center gap-1.5 flex-wrap">
+        <button @click="goToCiPage(ciPage-1)" :disabled="ciPage<=1 || ciLoading" class="btn-glass px-2.5 py-1.5 text-xs" aria-label="CI列表上一页">上一页</button>
+        <template x-for="item in paginationItems(ciPage, ciTotalPages, 'ci')" :key="item.key">
+          <span class="contents">
+            <span x-show="item.type==='ellipsis'" class="text-gray-500 px-1">…</span>
+            <button x-show="item.type==='page'" @click="goToCiPage(item.page)" :disabled="ciLoading" class="btn-glass min-w-8 px-2 py-1.5 text-xs" :class="item.page===ciPage?'btn-primary':''" :aria-label="'CI列表第 '+item.page+' 页'" x-text="item.page"></button>
+          </span>
+        </template>
+        <button @click="goToCiPage(ciPage+1)" :disabled="ciPage>=ciTotalPages || ciLoading" class="btn-glass px-2.5 py-1.5 text-xs" aria-label="CI列表下一页">下一页</button>
+      </div>
     </div>
   </div>
 </div>
@@ -658,7 +713,14 @@ tbody tr:hover{background:rgba(255,255,255,0.03)}
 <script>
 function app() {
   return {
-    tab:'dashboard', packages:[], devices:[], tasks:[], reports:[], reportPage:1, reportPageSize:20, reportTotal:0, reportTotalPages:1, reportLoading:false, _reportRequestId:0, ciJobs:[], agents:[], deviceLoads:[], lbStats:{},
+    tab:'dashboard',
+    packages:[], packagePage:1, packagePageSize:20, packageTotal:0, packageTotalPages:1, packageLoading:false, _packageRequestId:0,
+    taskPackageOptions:[], taskPackageOptionsLoaded:false,
+    devices:[],
+    tasks:[], recentTasks:[], taskPage:1, taskPageSize:20, taskTotal:0, taskTotalPages:1, taskStatusCounts:{}, taskLoading:false, _taskRequestId:0,
+    reports:[], reportPage:1, reportPageSize:20, reportTotal:0, reportTotalPages:1, reportLoading:false, _reportRequestId:0,
+    ciJobs:[], ciPage:1, ciPageSize:20, ciTotal:0, ciTotalPages:1, ciStatusCounts:{}, ciLoading:false, _ciRequestId:0,
+    agents:[], deviceLoads:[], lbStats:{},
     ciStepLabels:[
       {key:'received',label:'接收'},
       {key:'downloaded',label:'下载'},
@@ -701,27 +763,43 @@ function app() {
     },
 
     get reportRangeLabel() {
-      if (!this.reportTotal) return '暂无报告';
-      const start = (this.reportPage - 1) * this.reportPageSize + 1;
-      const end = Math.min(this.reportPage * this.reportPageSize, this.reportTotal);
-      return `显示第 ${start}-${end} 条，共 ${this.reportTotal} 条`;
+      return this.pageRangeLabel(this.reportPage, this.reportPageSize, this.reportTotal);
     },
 
     get reportPageItems() {
-      if (this.reportTotalPages <= 1) return [{key:'page-1', type:'page', page:1}];
-      const pages = new Set([1, this.reportTotalPages, this.reportPage]);
-      for (let page = this.reportPage - 1; page <= this.reportPage + 1; page++) {
-        if (page > 1 && page < this.reportTotalPages) pages.add(page);
+      return this.paginationItems(this.reportPage, this.reportTotalPages, 'report');
+    },
+
+    pageRangeLabel(page, pageSize, total) {
+      if (!total) return '暂无记录';
+      const start = (page - 1) * pageSize + 1;
+      const end = Math.min(page * pageSize, total);
+      return `显示第 ${start}-${end} 条，共 ${total} 条`;
+    },
+
+    paginationItems(currentPage, totalPages, prefix) {
+      if (totalPages <= 1) return [{key:`${prefix}-page-1`, type:'page', page:1}];
+      const pages = new Set([1, totalPages, currentPage]);
+      for (let page = currentPage - 1; page <= currentPage + 1; page++) {
+        if (page > 1 && page < totalPages) pages.add(page);
       }
       const orderedPages = [...pages].sort((left, right) => left - right);
       const items = [];
       orderedPages.forEach((page, index) => {
         if (index && page > orderedPages[index - 1] + 1) {
-          items.push({key:`ellipsis-${orderedPages[index - 1]}-${page}`, type:'ellipsis'});
+          items.push({key:`${prefix}-ellipsis-${orderedPages[index - 1]}-${page}`, type:'ellipsis'});
         }
-        items.push({key:`page-${page}`, type:'page', page});
+        items.push({key:`${prefix}-page-${page}`, type:'page', page});
       });
       return items;
+    },
+
+    taskStatusTotal(statuses) {
+      return statuses.reduce((total, status) => total + Number(this.taskStatusCounts[status] || 0), 0);
+    },
+
+    ciStatusTotal(statuses) {
+      return statuses.reduce((total, status) => total + Number(this.ciStatusCounts[status] || 0), 0);
     },
 
     get taskBatches() {
@@ -761,11 +839,65 @@ function app() {
 
     async init(){
       await Promise.all([this.loadPackages(),this.loadDevices(),this.loadTasks(),this.loadReports(),this.loadCiJobs(),this.loadAgents(),this.loadDeviceLoads(),this.loadLbStats()]);
-      setInterval(()=>{this.loadTasks();this.loadDevices();this.loadReports();this.loadCiJobs();this.loadAgents();this.loadDeviceLoads();this.loadLbStats()},5000);
+      setInterval(()=>{this.loadTasks();if(this.taskPage!==1)this.loadRecentTasks();this.loadDevices();this.loadCiJobs();this.loadAgents();this.loadDeviceLoads();this.loadLbStats()},5000);
     },
-    async loadPackages(){this.packages=await this.api('/api/packages')},
+    async loadPackages(page=this.packagePage){
+      const requestedPage=Math.max(1,Number(page)||1);
+      const requestId=++this._packageRequestId;
+      this.packageLoading=true;
+      const data=await this.api(`/api/packages?page=${requestedPage}&page_size=${this.packagePageSize}`);
+      if(requestId!==this._packageRequestId)return;
+      this.packageLoading=false;
+      if(!data||!Array.isArray(data.items))return;
+      this.packages=data.items;
+      this.packageTotal=Number(data.total)||0;
+      this.packagePage=Number(data.page)||1;
+      this.packagePageSize=Number(data.page_size)||this.packagePageSize;
+      this.packageTotalPages=Math.max(1,Number(data.total_pages)||1);
+      const visiblePackageIds=new Set(this.packages.map(item=>item.id));
+      this.selectedPackages=this.selectedPackages.filter(id=>visiblePackageIds.has(id));
+    },
+    async goToPackagePage(page){
+      const targetPage=Math.max(1,Math.min(Number(page)||1,this.packageTotalPages));
+      if(targetPage===this.packagePage||this.packageLoading)return;
+      await this.loadPackages(targetPage);
+    },
+    async loadTaskPackageOptions(force=false){
+      if(this.taskPackageOptionsLoaded&&!force)return;
+      const data=await this.api('/api/packages');
+      if(!Array.isArray(data))return;
+      this.taskPackageOptions=data;
+      this.taskPackageOptionsLoaded=true;
+    },
     async loadDevices(){this.devices=(await this.api('/api/devices')).filter(d=>!d.error)},
-    async loadTasks(){this.tasks=await this.api('/api/tasks')},
+    async loadTasks(page=this.taskPage){
+      const requestedPage=Math.max(1,Number(page)||1);
+      const requestId=++this._taskRequestId;
+      this.taskLoading=true;
+      const data=await this.api(`/api/tasks?page=${requestedPage}&page_size=${this.taskPageSize}`);
+      if(requestId!==this._taskRequestId)return;
+      this.taskLoading=false;
+      if(!data||!Array.isArray(data.items))return;
+      this.tasks=data.items;
+      this.taskTotal=Number(data.total)||0;
+      this.taskPage=Number(data.page)||1;
+      this.taskPageSize=Number(data.page_size)||this.taskPageSize;
+      this.taskTotalPages=Math.max(1,Number(data.total_pages)||1);
+      this.taskStatusCounts=data.status_counts||{};
+      if(this.taskPage===1)this.recentTasks=this.tasks.slice(0,10);
+      const visibleBatchIds=new Set(this.tasks.filter(task=>task.batch_id).map(task=>task.batch_id));
+      this.expandedBatches=this.expandedBatches.filter(id=>visibleBatchIds.has(id));
+    },
+    async loadRecentTasks(){
+      const data=await this.api('/api/tasks?page=1&page_size=10');
+      if(data&&Array.isArray(data.items))this.recentTasks=data.items;
+    },
+    async goToTaskPage(page){
+      const targetPage=Math.max(1,Math.min(Number(page)||1,this.taskTotalPages));
+      if(targetPage===this.taskPage||this.taskLoading)return;
+      await this.loadTasks(targetPage);
+      if(targetPage!==1)await this.loadRecentTasks();
+    },
     async loadReports(page=this.reportPage){
       const requestedPage=Math.max(1,Number(page)||1);
       const requestId=++this._reportRequestId;
@@ -785,7 +917,26 @@ function app() {
       if(targetPage===this.reportPage||this.reportLoading)return;
       await this.loadReports(targetPage);
     },
-    async loadCiJobs(){this.ciJobs=await this.api('/api/ci/jobs')},
+    async loadCiJobs(page=this.ciPage){
+      const requestedPage=Math.max(1,Number(page)||1);
+      const requestId=++this._ciRequestId;
+      this.ciLoading=true;
+      const data=await this.api(`/api/ci/jobs?page=${requestedPage}&page_size=${this.ciPageSize}`);
+      if(requestId!==this._ciRequestId)return;
+      this.ciLoading=false;
+      if(!data||!Array.isArray(data.items))return;
+      this.ciJobs=data.items;
+      this.ciTotal=Number(data.total)||0;
+      this.ciPage=Number(data.page)||1;
+      this.ciPageSize=Number(data.page_size)||this.ciPageSize;
+      this.ciTotalPages=Math.max(1,Number(data.total_pages)||1);
+      this.ciStatusCounts=data.status_counts||{};
+    },
+    async goToCiPage(page){
+      const targetPage=Math.max(1,Math.min(Number(page)||1,this.ciTotalPages));
+      if(targetPage===this.ciPage||this.ciLoading)return;
+      await this.loadCiJobs(targetPage);
+    },
     async loadAgents(){this.agents=await this.api('/api/devices/agents')},
     async loadDeviceLoads(){const r=await this.api('/api/tasks/stats/loadbalancer');this.deviceLoads=r.devices||[]},
     async loadLbStats(){this.lbStats=await this.api('/api/tasks/stats/loadbalancer')},
@@ -802,22 +953,13 @@ function app() {
       console.log(`[Upload] 开始上传: ${f.name}, 大小: ${(f.size/1024/1024).toFixed(2)}MB`);
       const r=await this.api('/api/packages/upload',{method:'POST',body:fd});
       console.log(`[Upload] 上传完成: ${f.name}, 耗时: ${Date.now()-startTime}ms`,r);
-      if(r&&r.id){
-        this.packages.unshift({
-          id:r.id,
-          filename:r.filename,
-          package_name:r.package_name||'解析中...',
-          file_type:r.file_type,
-          file_size:r.file_size,
-          source:r.source||'upload',
-          created_at:new Date().toISOString()
-        });
-      }
+      if(r&&r.id)this.taskPackageOptionsLoaded=false;
       this.uploading=false;
-      this.loadPackages();
+      await this.loadPackages(1);
+      if(this.showCreateTask)await this.loadTaskPackageOptions(true);
     },
 
-    async deletePackage(id){if(!confirm('确定删除？'))return;await this.api('/api/packages/'+id,{method:'DELETE'});this.selectedPackages=this.selectedPackages.filter(x=>x!==id);await this.loadPackages()},
+    async deletePackage(id){if(!confirm('确定删除？'))return;await this.api('/api/packages/'+id,{method:'DELETE'});this.selectedPackages=this.selectedPackages.filter(x=>x!==id);this.taskPackageOptionsLoaded=false;await this.loadPackages(this.packagePage);if(this.showCreateTask)await this.loadTaskPackageOptions(true)},
     async pushPackage(id){
       const devices = this.devices.filter(d=>d.status==='device');
       if(!devices.length){alert('没有可用的设备');return}
@@ -831,11 +973,12 @@ function app() {
       alert(`推送完成: ${success} 成功, ${failed} 失败`);
     },
     toggleAllPackages(e){this.selectedPackages=e.target.checked?this.packages.map(p=>p.id):[]},
-    async batchDeletePackages(){if(!confirm('确定删除选中的包？'))return;await this.api('/api/packages/batch-delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:this.selectedPackages})});this.selectedPackages=[];await this.loadPackages()},
-    async deleteAllPackages(){if(!confirm('确定删除全部包？'))return;await this.api('/api/packages/all',{method:'DELETE'});this.selectedPackages=[];await this.loadPackages()},
+    async batchDeletePackages(){if(!confirm('确定删除选中的包？'))return;await this.api('/api/packages/batch-delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:this.selectedPackages})});this.selectedPackages=[];this.taskPackageOptionsLoaded=false;await this.loadPackages(this.packagePage);if(this.showCreateTask)await this.loadTaskPackageOptions(true)},
+    async deleteAllPackages(){if(!confirm('确定删除全部包？'))return;await this.api('/api/packages/all',{method:'DELETE'});this.selectedPackages=[];this.taskPackageOptions=[];this.taskPackageOptionsLoaded=true;await this.loadPackages(1)},
 
-    openCreateTask(pkg){this.tab='tasks';this.showCreateTask=true;this.taskSelectedPkgs=[pkg.id]},
-    toggleAllTaskPackages(e){this.taskSelectedPkgs=e.target.checked?this.packages.map(p=>p.id):[]},
+    async openCreateTask(pkg){this.tab='tasks';this.showCreateTask=true;this.taskSelectedPkgs=[pkg.id];await this.loadTaskPackageOptions()},
+    async toggleTaskCreator(){this.showCreateTask=!this.showCreateTask;if(this.showCreateTask)await this.loadTaskPackageOptions()},
+    toggleAllTaskPackages(e){this.taskSelectedPkgs=e.target.checked?this.taskPackageOptions.map(p=>p.id):[]},
     async createTasks(){
       if(!this.taskSelectedPkgs.length)return alert('请选择至少一个包');
       const autoAssign = !this.newTask.device_serial;
@@ -849,13 +992,13 @@ function app() {
         if(r.distributed)alert(`批量任务已创建，分散到 ${Object.keys(r.tasks.map(t=>t.device_serial).filter((v,i,a)=>a.indexOf(v)===i)).length} 台设备`);
         else alert(`批量任务已创建，共 ${r.created} 个任务`);
       }
-      this.showCreateTask=false;this.taskSelectedPkgs=[];this.newTask.device_serial='';this.newTask.autoDistribute=false;this.newTask.new_package=false;await this.loadTasks();
+      this.showCreateTask=false;this.taskSelectedPkgs=[];this.newTask.device_serial='';this.newTask.autoDistribute=false;this.newTask.new_package=false;await this.loadTasks(1);
     },
     async cancelTask(id){await this.api('/api/tasks/'+id+'/cancel',{method:'POST'});await this.loadTasks()},
-    async deleteTask(id){if(!confirm('确定删除？'))return;await this.api('/api/tasks/'+id,{method:'DELETE'});await this.loadTasks()},
+    async deleteTask(id){if(!confirm('确定删除？'))return;await this.api('/api/tasks/'+id,{method:'DELETE'});await this.loadTasks(this.taskPage)},
     async cancelBatchTasks(batchId){if(!confirm('确定取消该批量任务中所有未完成的任务？'))return;await this.api('/api/tasks/batch/'+batchId+'/cancel',{method:'POST'});await this.loadTasks()},
-    async deleteBatchTasks(batchId){if(!confirm('确定删除该批量任务？'))return;await this.api('/api/tasks/batch/'+batchId,{method:'DELETE'});this.expandedBatches=this.expandedBatches.filter(id=>id!==batchId);await this.loadTasks()},
-    async deleteAllTasks(){if(!confirm('确定删除全部任务？'))return;await this.api('/api/tasks/all/clear',{method:'DELETE'});await this.loadTasks()},
+    async deleteBatchTasks(batchId){if(!confirm('确定删除该批量任务？'))return;await this.api('/api/tasks/batch/'+batchId,{method:'DELETE'});this.expandedBatches=this.expandedBatches.filter(id=>id!==batchId);await this.loadTasks(this.taskPage)},
+    async deleteAllTasks(){if(!confirm('确定删除全部任务？'))return;await this.api('/api/tasks/all/clear',{method:'DELETE'});await this.loadTasks(1)},
 
     async deleteReport(id){if(!confirm('确定删除？'))return;await this.api('/api/reports/'+id,{method:'DELETE'});await this.loadReports(this.reportPage)},
     async deleteAllReports(){if(!confirm('确定删除全部报告？'))return;await this.api('/api/reports/all/clear',{method:'DELETE'});await this.loadReports(1)},
@@ -863,8 +1006,8 @@ function app() {
     async downloadCiJob(id){if(!confirm('确定手动下载并入库该CI构建产物？'))return;const r=await this.api('/api/ci/jobs/'+id+'/download',{method:'POST'});if(r&&r.message)console.log(r.message,r);await Promise.all([this.loadCiJobs(),this.loadPackages()])},
     async runCiJobScript(id){if(!confirm('确定使用已下载测试包手动跑脚本？'))return;const r=await this.api('/api/ci/jobs/'+id+'/run-script',{method:'POST'});if(r&&r.message)console.log(r.message,r);await Promise.all([this.loadCiJobs(),this.loadTasks()])},
     async rerunCiJob(id){if(!confirm('确定重新下载并运行完整CI流程？'))return;const r=await this.api('/api/ci/jobs/'+id+'/rerun',{method:'POST'});if(r&&r.message)console.log(r.message,r);await Promise.all([this.loadCiJobs(),this.loadPackages(),this.loadTasks()])},
-    async deleteCiJob(id){if(!confirm('确定删除该CI流转记录？'))return;await this.api('/api/ci/jobs/'+id,{method:'DELETE'});await this.loadCiJobs()},
-    async deleteAllCiJobs(){if(!confirm('确定清空全部CI流转记录？'))return;await this.api('/api/ci/jobs',{method:'DELETE'});await this.loadCiJobs()},
+    async deleteCiJob(id){if(!confirm('确定删除该CI流转记录？'))return;await this.api('/api/ci/jobs/'+id,{method:'DELETE'});await this.loadCiJobs(this.ciPage)},
+    async deleteAllCiJobs(){if(!confirm('确定清空全部CI流转记录？'))return;await this.api('/api/ci/jobs',{method:'DELETE'});await this.loadCiJobs(1)},
 
     async viewTaskLogs(task){
       this.logTaskId=task.id;this.logLines=[];this.logModal=true;this.logStreaming=false;this.logAutoFollow=true;this.logNewLineCount=0;

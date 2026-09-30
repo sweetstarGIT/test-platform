@@ -24,7 +24,7 @@
 |------|------|------|
 | POST | /upload | Web 上传包，自动推送到设备 |
 | POST | /push | CI 推送包 (需 API Key) |
-| GET | / | 列出所有包 |
+| GET | / | 包列表；带 `page` / `page_size` 时分页 |
 | POST | /batch-delete | 批量删除包 |
 | DELETE | /all | 删除所有包 |
 | DELETE | /{pkg_id} | 删除单个包 |
@@ -44,7 +44,7 @@
 | 方法 | 路径 | 功能 |
 |------|------|------|
 | POST | / | 创建单任务 |
-| GET | / | 任务列表 |
+| GET | / | 任务列表；带 `page` / `page_size` 时分页 |
 | GET | /{task_id} | 任务详情 |
 | GET | /{task_id}/logs | 日志流 (SSE) |
 | POST | /{task_id}/cancel | 取消任务 |
@@ -64,6 +64,19 @@
 | GET | /{report_id} | 查看报告 HTML |
 | DELETE | /{report_id} | 删除报告 |
 | DELETE | /all/clear | 清空所有报告 |
+
+### ci.py (前缀: /api/ci)
+
+| 方法 | 路径 | 功能 |
+|------|------|------|
+| GET | /jobs | CI 流转列表；带 `page` / `page_size` 时分页 |
+| GET | /jobs/{job_id} | CI 流转任务详情 |
+| POST | /jobs/{job_id}/retry | 重试 CI 流转任务 |
+| POST | /jobs/{job_id}/download | 手动下载构建产物 |
+| POST | /jobs/{job_id}/run-script | 使用已下载包手动跑脚本 |
+| POST | /jobs/{job_id}/rerun | 重新执行完整 CI 流程 |
+| DELETE | /jobs/{job_id} | 删除单条 CI 流转记录 |
+| DELETE | /jobs | 清空 CI 流转记录 |
 
 ---
 
@@ -136,6 +149,26 @@ Response:
   "total_pages": 3
 }
 ```
+
+### 包、任务与 CI 的可选分页
+
+```python
+GET /api/packages?page=1&page_size=20
+GET /api/tasks?page=1&page_size=20
+GET /api/ci/jobs?page=1&page_size=20
+
+Response:
+{
+  "items": [...],
+  "total": 45,
+  "page": 1,
+  "page_size": 20,
+  "total_pages": 3,
+  "status_counts": {"running": 2, "done": 40}  # 任务和 CI 才返回
+}
+```
+
+`page` 与 `page_size` 均不传时，以上三个接口仍返回原有数组结构：包列表返回全部，任务列表最多 50 条，CI 列表最多 100 条。这用于兼容已有本地脚本和开发侧 CI 查询。
 
 ---
 

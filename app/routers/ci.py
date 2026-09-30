@@ -8,9 +8,11 @@ import urllib.parse
 import urllib.request
 import zipfile
 from datetime import datetime
+from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -528,9 +530,41 @@ def _serialize_ci_job(job: CiJob, db: Session) -> dict:
 
 
 @router.get("/jobs")
-def list_ci_jobs(db: Session = Depends(get_db)):
-    jobs = db.query(CiJob).order_by(CiJob.created_at.desc()).limit(100).all()
-    return [_serialize_ci_job(job, db) for job in jobs]
+def list_ci_jobs(
+    page: Optional[int] = Query(None, ge=1, description="页码，从 1 开始"),
+    page_size: Optional[int] = Query(None, ge=1, le=100, description="每页数量"),
+    db: Session = Depends(get_db),
+):
+    """列出 CI 任务；带分页参数时返回分页对象，未带参数时保留旧数组响应。"""
+    query = db.query(CiJob).order_by(CiJob.created_at.desc(), CiJob.id.desc())
+
+    if page is None and page_size is None:
+        return [_serialize_ci_job(job, db) for job in query.limit(100).all()]
+
+    effective_page_size = page_size or 20
+    requested_page = page or 1
+    total = db.query(CiJob).count()
+    total_pages = max(1, (total + effective_page_size - 1) // effective_page_size)
+    effective_page = min(requested_page, total_pages)
+    jobs = (
+        query
+        .offset((effective_page - 1) * effective_page_size)
+        .limit(effective_page_size)
+        .all()
+    )
+    status_counts = {
+        status or "": count
+        for status, count in db.query(CiJob.status, func.count(CiJob.id)).group_by(CiJob.status).all()
+    }
+
+    return {
+        "items": [_serialize_ci_job(job, db) for job in jobs],
+        "total": total,
+        "page": effective_page,
+        "page_size": effective_page_size,
+        "total_pages": total_pages,
+        "status_counts": status_counts,
+    }
 
 
 @router.get("/jobs/{job_id}")

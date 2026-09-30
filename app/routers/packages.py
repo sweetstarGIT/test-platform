@@ -3,10 +3,10 @@ import os
 import subprocess
 import shutil
 import time
-from typing import List
+from typing import List, Optional
 from concurrent.futures import ThreadPoolExecutor
 import aiofiles
-from fastapi import APIRouter, UploadFile, File, Depends, Header, HTTPException
+from fastapi import APIRouter, UploadFile, File, Depends, Header, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -157,22 +157,49 @@ async def push_package(
     return {"id": pkg.id, "package_name": pkg.package_name, "auto_push": AUTO_PUSH_TO_DEVICE, "pushed_devices": push_results}
 
 
+def _serialize_package(package: Package) -> dict:
+    return {
+        "id": package.id,
+        "filename": package.filename,
+        "package_name": package.package_name,
+        "file_type": package.file_type,
+        "file_size": package.file_size,
+        "source": package.source,
+        "created_at": package.created_at.isoformat() if package.created_at else "",
+    }
+
+
 @router.get("")
-def list_packages(db: Session = Depends(get_db)):
-    """列出所有包"""
-    packages = db.query(Package).order_by(Package.created_at.desc()).all()
-    return [
-        {
-            "id": p.id,
-            "filename": p.filename,
-            "package_name": p.package_name,
-            "file_type": p.file_type,
-            "file_size": p.file_size,
-            "source": p.source,
-            "created_at": p.created_at.isoformat() if p.created_at else "",
-        }
-        for p in packages
-    ]
+def list_packages(
+    page: Optional[int] = Query(None, ge=1, description="页码，从 1 开始"),
+    page_size: Optional[int] = Query(None, ge=1, le=100, description="每页数量"),
+    db: Session = Depends(get_db),
+):
+    """列出包；带分页参数时返回分页对象，未带参数时保留旧数组响应。"""
+    query = db.query(Package).order_by(Package.created_at.desc(), Package.id.desc())
+
+    if page is None and page_size is None:
+        return [_serialize_package(package) for package in query.all()]
+
+    effective_page_size = page_size or 20
+    requested_page = page or 1
+    total = db.query(Package).count()
+    total_pages = max(1, (total + effective_page_size - 1) // effective_page_size)
+    effective_page = min(requested_page, total_pages)
+    packages = (
+        query
+        .offset((effective_page - 1) * effective_page_size)
+        .limit(effective_page_size)
+        .all()
+    )
+
+    return {
+        "items": [_serialize_package(package) for package in packages],
+        "total": total,
+        "page": effective_page,
+        "page_size": effective_page_size,
+        "total_pages": total_pages,
+    }
 
 
 @router.post("/batch-delete")
